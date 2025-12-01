@@ -21,10 +21,13 @@ OBJS := $(patsubst $(SRC_ROOT)/%.c,$(OBJ_ROOT)/%.o,$(SRCS))
 
 TEST_SRCS := $(wildcard tests/unit/*.c)
 TEST_BINS := $(patsubst tests/unit/%.c,$(BUILD_ROOT)/tests/%,$(TEST_SRCS))
+INTEGRATION_SRCS := $(wildcard tests/integration/*.c)
+INTEGRATION_BINS := $(patsubst tests/integration/%.c,$(BUILD_ROOT)/tests/integration/%,$(INTEGRATION_SRCS))
 
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 CFLAGS += -fPIC -ffunction-sections -fdata-sections
 CFLAGS += -I$(INCLUDE_ROOT)
+CFLAGS += -Iexamples/bpf_memleak
 CFLAGS += $(DWUNW_ARCH_CFLAGS)
 LDFLAGS ?=
 HOST_CC ?= cc
@@ -35,8 +38,12 @@ LIBBPF_LDLIBS ?= -lbpf -lelf -lz
 
 all: $(LIB_TARGET)
 
-test: all $(TEST_FIXTURE) $(TEST_BINS)
+test: all $(TEST_FIXTURE) $(TEST_BINS) $(INTEGRATION_BINS)
 	@set -e; for t in $(TEST_BINS); do \
+		echo "[RUN] $$t"; \
+		DWUNW_TEST_FIXTURE=$(TEST_FIXTURE) "$$t"; \
+	done; \
+	for t in $(INTEGRATION_BINS); do \
 		echo "[RUN] $$t"; \
 		DWUNW_TEST_FIXTURE=$(TEST_FIXTURE) "$$t"; \
 	done
@@ -58,6 +65,10 @@ $(OBJ_ROOT):
 	@mkdir -p $(OBJ_ROOT)
 
 $(BUILD_ROOT)/tests/%: tests/unit/%.c $(LIB_TARGET)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(LIB_TARGET) -o $@
+
+$(BUILD_ROOT)/tests/integration/%: tests/integration/%.c $(LIB_TARGET)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< $(LIB_TARGET) -o $@
 

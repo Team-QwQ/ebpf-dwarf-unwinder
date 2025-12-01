@@ -47,11 +47,11 @@
    - 更新 `tests/unit/test_arch_ops` 验证 FP/LR、RA 退化路径，确保两个架构都能计算 CFA 并给出返回地址。
    - 使用预制的 ELF 样例或交叉编译测试二进制，验证 `dwunw_capture` 能产生正确帧序列。
 
-7. **测试与文档完善**
-   - `tests/unit/`: 覆盖 DWARF 解析、CFA 计算、错误码；使用模拟寄存器输入。
-   - `tests/integration/`: 利用真实 ELF 和录制的 BPF 事件，比较预期/实际栈。
-   - `doc/`: 补充 API 指南、内存与性能注意事项、交叉编译说明。
-   - 准备 memleak 集成指南：如何启用/禁用 `libdwunw`、回退策略等。
+7. **测试与文档完善**（已完成）
+   - `tests/unit/`: 新增 `test_dwarf_index` 覆盖 DWARF 索引 reset/init、错误码分支。
+   - `tests/integration/`: 新建 `test_capture_memleak`，通过 memleak 事件 → `dwunw_capture` 的真实路径验证，确保 module cache 可重复使用。
+   - `doc/`: 编写 `doc/api_usage.md`（API 调用顺序）与 `doc/cross_arch_validation.md`（交叉编译、性能、DWARF 资产），补齐 Stage 7 所需指南。
+   - memleak 集成指南继续由 `examples/bpf_memleak/README.md` 承载，并在新增文档中引用。
 
 ## 交付里程碑
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成，GNU Make 构建、目录骨架与 PAL 就绪）
@@ -70,9 +70,9 @@
 ## 验证策略
 - **构建验证**：CI 统一执行 `make all` 与 `make ARCH=arm64 all` 等目标，覆盖本地与交叉编译配置。
 - **单元测试**：`tests/unit` 由 `ctest`/`make test` 驱动；必须输出期望/实际栈差异。
-- **集成测试**：运行 `examples/bpf_memleak/run.sh`，对比 frame pointer vs DWARF 栈；日志需包含成功率统计。
+- **集成测试**：`make test` 会执行 `tests/integration/test_capture_memleak`，验证 memleak 事件转换、module cache 复用及 `dwunw_capture` 返回值；必要时再联动 `examples/bpf_memleak` 手动验证。
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**执行中（阶段 6 完成）**。
-- 下一阶段：进入阶段 7（测试与文档完善）。
+- 计划状态：**已完成（阶段 7 完成）**。
+- 下一阶段：根据后续需求进入维护模式或新的 /spec。
