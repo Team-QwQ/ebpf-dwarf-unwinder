@@ -5,17 +5,11 @@
 #include <stdint.h>
 
 #include "dwunw/config.h"
+#include "dwunw/status.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef enum {
-    DWUNW_OK = 0,
-    DWUNW_ERR_INVALID_ARG = -1,
-    DWUNW_ERR_UNSUPPORTED_ARCH = -2,
-    DWUNW_ERR_NOT_IMPLEMENTED = -3
-} dwunw_status_t;
 
 struct dwunw_context {
     uint32_t abi_tag;

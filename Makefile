@@ -10,10 +10,13 @@ LIB_TARGET := $(BUILD_ROOT)/libdwunw.a
 
 CORE_SRCS := $(wildcard $(SRC_ROOT)/core/*.c)
 DWARF_SRCS := $(wildcard $(SRC_ROOT)/dwarf/*.c)
-ARCH_SRCS := $(wildcard $(SRC_ROOT)/arch/$(ARCH)/*.c)
+ARCH_SRCS := $(wildcard $(SRC_ROOT)/arch/*/*.c)
 SRCS := $(CORE_SRCS) $(DWARF_SRCS) $(ARCH_SRCS)
 
 OBJS := $(patsubst $(SRC_ROOT)/%.c,$(OBJ_ROOT)/%.o,$(SRCS))
+
+TEST_SRCS := $(wildcard tests/unit/*.c)
+TEST_BINS := $(patsubst tests/unit/%.c,$(BUILD_ROOT)/tests/%,$(TEST_SRCS))
 
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 CFLAGS += -fPIC -ffunction-sections -fdata-sections
@@ -21,9 +24,17 @@ CFLAGS += -I$(INCLUDE_ROOT)
 CFLAGS += $(DWUNW_ARCH_CFLAGS)
 LDFLAGS ?=
 
-.PHONY: all clean print-config help
+.PHONY: all clean print-config help test unit
 
 all: $(LIB_TARGET)
+
+test: all $(TEST_BINS)
+	@set -e; for t in $(TEST_BINS); do \
+		echo "[RUN] $$t"; \
+		"$$t"; \
+	done
+
+unit: test
 
 $(LIB_TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
@@ -36,6 +47,10 @@ $(OBJ_ROOT)/%.o: $(SRC_ROOT)/%.c | $(OBJ_ROOT)
 
 $(OBJ_ROOT):
 	@mkdir -p $(OBJ_ROOT)
+
+$(BUILD_ROOT)/tests/%: tests/unit/%.c $(LIB_TARGET)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(LIB_TARGET) -o $@
 
 clean:
 	rm -rf build
@@ -50,6 +65,7 @@ print-config:
 help:
 	@echo "Targets:"
 	@echo "  all            Build libdwunw.a for ARCH=$(ARCH)"
+	@echo "  test           Build and run unit tests for ARCH=$(ARCH)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  print-config   Show the resolved toolchain settings"
 	@echo "Variables:"
