@@ -6,6 +6,7 @@
 
 #include "dwunw/config.h"
 #include "dwunw/status.h"
+#include "dwunw/module_cache.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,8 @@ extern "C" {
 struct dwunw_context {
     uint32_t abi_tag;
     uint32_t reserved;
+    struct dwunw_module_cache module_cache;
+    uint8_t module_cache_ready;
 };
 
 static inline uint32_t
@@ -26,6 +29,7 @@ DWUNW_API_VERSION(void)
 
 /* Library lifecycle ------------------------------------------------------- */
 dwunw_status_t dwunw_init(struct dwunw_context *ctx);
+void dwunw_shutdown(struct dwunw_context *ctx);
 
 #ifdef __cplusplus
 }

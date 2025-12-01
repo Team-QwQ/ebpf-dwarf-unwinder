@@ -12,7 +12,8 @@ TEST_FIXTURE := $(BUILD_ROOT)/fixtures/dwarf_fixture
 CORE_SRCS := $(wildcard $(SRC_ROOT)/core/*.c)
 DWARF_SRCS := $(wildcard $(SRC_ROOT)/dwarf/*.c)
 ARCH_SRCS := $(wildcard $(SRC_ROOT)/arch/*/*.c)
-SRCS := $(CORE_SRCS) $(DWARF_SRCS) $(ARCH_SRCS)
+UNWINDER_SRCS := $(wildcard $(SRC_ROOT)/unwinder/*.c)
+SRCS := $(CORE_SRCS) $(DWARF_SRCS) $(ARCH_SRCS) $(UNWINDER_SRCS)
 
 OBJS := $(patsubst $(SRC_ROOT)/%.c,$(OBJ_ROOT)/%.o,$(SRCS))
 

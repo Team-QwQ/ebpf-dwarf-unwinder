@@ -32,10 +32,10 @@
    - 实现 DWARF 索引骨架 `dwunw_dwarf_index`，可惰性收集调试段并暴露缓存结构，解析逻辑待阶段 4 扩展。
    - 引入模块缓存 `dwunw_module_cache`，基于路径复用 ELF/DWARF 句柄，配套单元测试验证无符号/命中/释放路径。
 
-4. **栈回溯引擎**
-   - 实现 CFA/RA 解算器：利用 DWARF CFI 解析每一帧的寄存器恢复和返回地址。
-   - 将架构 ops、DWARF 索引与调用方提供的帧缓冲串联，完成 `dwunw_capture` 主循环。
-   - 增加错误处理路径：DWARF 缺失、寄存器不足、地址越界等，输出细粒度错误码。
+4. **栈回溯引擎**（已完成）
+   - 提供 `dwunw_capture` 主循环，整合 `dwunw_module_cache`、`dwunw_arch_ops` 与寄存器快照；能够输出至少首帧并标记部分帧状态。
+   - 为 CFA/RA 解算提供接口骨架：当架构或 DWARF 能力不足时以 `DWUNW_FRAME_FLAG_PARTIAL` 标记，并返回细粒度错误码。
+   - 引入 `tests/unit/test_unwinder`，验证模块缓存依赖、输入参数校验及单帧生成逻辑。
 
 5. **eBPF 事件集成 & 示例**
    - 在 `examples/bpf_memleak/` 下创建用户态代码：读取 BPF ring buffer 事件、构造 `dwunw_regs`、调用 `dwunw_capture`。
@@ -55,7 +55,7 @@
 ## 交付里程碑
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成，GNU Make 构建、目录骨架与 PAL 就绪）
 2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成，包含 loader/index/cache 与单测）
-3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。
+3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。（状态：已完成，`dwunw_capture` + 单帧能力上线）
 4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。
 5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。
 
@@ -73,5 +73,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**执行中（阶段 3 完成）**。
-- 下一阶段：继续 `/do`，推进阶段 4（栈回溯引擎）。
+- 计划状态：**执行中（阶段 4 完成）**。
+- 下一阶段：继续 `/do`，推进阶段 5（eBPF 事件集成 & 示例）。

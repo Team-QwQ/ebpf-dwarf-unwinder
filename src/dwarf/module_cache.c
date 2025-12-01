@@ -46,6 +46,28 @@ dwunw_module_cache_init(struct dwunw_module_cache *cache)
     memset(cache, 0, sizeof(*cache));
 }
 
+void
+dwunw_module_cache_flush(struct dwunw_module_cache *cache)
+{
+    size_t i;
+
+    if (!cache) {
+        return;
+    }
+
+    for (i = 0; i < DWUNW_MODULE_CACHE_CAPACITY; ++i) {
+        struct dwunw_module_cache_entry *entry = &cache->entries[i];
+        if (!entry->in_use) {
+            continue;
+        }
+        dwunw_elf_close(&entry->handle.elf);
+        dwunw_dwarf_index_reset(&entry->handle.index);
+        memset(entry->path, 0, sizeof(entry->path));
+        entry->refcnt = 0;
+        entry->in_use = 0;
+    }
+}
+
 dwunw_status_t
 dwunw_module_cache_acquire(struct dwunw_module_cache *cache,
                           const char *path,

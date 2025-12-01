@@ -24,6 +24,7 @@ struct dwunw_module_cache {
 };
 
 void dwunw_module_cache_init(struct dwunw_module_cache *cache);
+void dwunw_module_cache_flush(struct dwunw_module_cache *cache);
 
 dwunw_status_t dwunw_module_cache_acquire(struct dwunw_module_cache *cache,
                                           const char *path,
