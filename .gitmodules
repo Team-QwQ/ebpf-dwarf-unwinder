@@ -1,0 +1,9 @@
+[submodule "src/ref/ghostscope"]
+	path = src/ref/ghostscope
+	url = https://github.com/swananan/ghostscope
+[submodule "src/ref/parca"]
+	path = src/ref/parca
+	url = https://github.com/parca-dev/parca
+[submodule "src/ref/bcc"]
+	path = src/ref/bcc
+	url = https://github.com/iovisor/bcc
