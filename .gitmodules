@@ -7,3 +7,6 @@
 [submodule "src/ref/bcc"]
 	path = src/ref/bcc
 	url = https://github.com/iovisor/bcc
+[submodule "src/ref/libbpf"]
+	path = src/ref/libbpf
+	url = https://github.com/libbpf/libbpf
