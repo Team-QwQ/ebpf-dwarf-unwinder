@@ -37,10 +37,10 @@
    - 为 CFA/RA 解算提供接口骨架：当架构或 DWARF 能力不足时以 `DWUNW_FRAME_FLAG_PARTIAL` 标记，并返回细粒度错误码。
    - 引入 `tests/unit/test_unwinder`，验证模块缓存依赖、输入参数校验及单帧生成逻辑。
 
-5. **eBPF 事件集成 & 示例**
-   - 在 `examples/bpf_memleak/` 下创建用户态代码：读取 BPF ring buffer 事件、构造 `dwunw_regs`、调用 `dwunw_capture`。
-   - 给出 BPF 程序补丁：在 memleak 的 uprobe 中记录寄存器、SP、模块 cookie 并输出到 ring buffer。
-   - 提供 README（中文）说明如何构建、加载、运行示例以及如何验证输出。
+5. **eBPF 事件集成 & 示例**（已完成）
+   - `examples/bpf_memleak/` 提供共享事件结构、`memleak_bpf.c`（kprobe do_exit 样例）与 `memleak_user.c`（libbpf loader），串联 ring buffer → `dwunw_capture`。
+   - BPF 事件结构可投递跨架构寄存器快照，用户态使用 `memleak_event_to_regset()` 转换并写入模块缓存。
+   - README（中文）覆盖 clang/llvm 仅用于 BPF 编译、libbpf 构建示例、运行/验证步骤及扩展建议。
 
 6. **跨架构支持扩展**
    - 基于阶段 4 的框架补全 arm64/mips32 ops，实现寄存器映射与 CFI 适配。
@@ -56,7 +56,7 @@
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成，GNU Make 构建、目录骨架与 PAL 就绪）
 2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成，包含 loader/index/cache 与单测）
 3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。（状态：已完成，`dwunw_capture` + 单帧能力上线）
-4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。
+4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。（状态：已完成，示例包含 README、BPF 与用户态 loader）
 5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。
 
 ## 风险与缓解
@@ -73,5 +73,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**执行中（阶段 4 完成）**。
-- 下一阶段：继续 `/do`，推进阶段 5（eBPF 事件集成 & 示例）。
+- 计划状态：**执行中（阶段 5 完成）**。
+- 下一阶段：进入阶段 6（跨架构支持扩展）。

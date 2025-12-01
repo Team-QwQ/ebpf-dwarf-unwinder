@@ -8,6 +8,8 @@ BUILD_ROOT ?= build/$(ARCH)
 OBJ_ROOT := $(BUILD_ROOT)/obj
 LIB_TARGET := $(BUILD_ROOT)/libdwunw.a
 TEST_FIXTURE := $(BUILD_ROOT)/fixtures/dwarf_fixture
+EXAMPLE_MEMLEAK_SRC := examples/bpf_memleak/memleak_user.c
+EXAMPLE_MEMLEAK_TARGET := $(BUILD_ROOT)/examples/bpf_memleak/memleak_user
 
 CORE_SRCS := $(wildcard $(SRC_ROOT)/core/*.c)
 DWARF_SRCS := $(wildcard $(SRC_ROOT)/dwarf/*.c)
@@ -26,8 +28,10 @@ CFLAGS += -I$(INCLUDE_ROOT)
 CFLAGS += $(DWUNW_ARCH_CFLAGS)
 LDFLAGS ?=
 HOST_CC ?= cc
+LIBBPF_CFLAGS ?=
+LIBBPF_LDLIBS ?= -lbpf -lelf -lz
 
-.PHONY: all clean print-config help test unit
+.PHONY: all clean print-config help test unit examples
 
 all: $(LIB_TARGET)
 
@@ -38,6 +42,8 @@ test: all $(TEST_FIXTURE) $(TEST_BINS)
 	done
 
 unit: test
+
+examples: $(EXAMPLE_MEMLEAK_TARGET)
 
 $(LIB_TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
@@ -59,6 +65,11 @@ $(TEST_FIXTURE): tests/fixtures/dwarf_fixture.c
 	@mkdir -p $(dir $@)
 	$(HOST_CC) -g -O0 $< -o $@
 
+$(EXAMPLE_MEMLEAK_TARGET): $(EXAMPLE_MEMLEAK_SRC) $(LIB_TARGET) examples/bpf_memleak/memleak_events.h
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(CFLAGS) $(LIBBPF_CFLAGS) -Iexamples/bpf_memleak \
+		$< $(LIB_TARGET) $(LIBBPF_LDLIBS) -o $@
+
 clean:
 	rm -rf build
 
@@ -73,6 +84,7 @@ help:
 	@echo "Targets:"
 	@echo "  all            Build libdwunw.a for ARCH=$(ARCH)"
 	@echo "  test           Build and run unit tests for ARCH=$(ARCH)"
+	@echo "  examples       Build example binaries (memleak_user)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  print-config   Show the resolved toolchain settings"
 	@echo "Variables:"
@@ -80,3 +92,5 @@ help:
 	@echo "  BUILD_ROOT     Override output directory (default build/ARCH)"
 	@echo "  CROSS_COMPILE  Override compiler prefix"
 	@echo "  HOST_CC        Native compiler used for test fixtures (default cc)"
+	@echo "  LIBBPF_CFLAGS  Extra cflags for libbpf-enabled examples"
+	@echo "  LIBBPF_LDLIBS  Extra libs for libbpf-enabled examples"
