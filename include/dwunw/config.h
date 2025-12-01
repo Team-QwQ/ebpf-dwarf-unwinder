@@ -11,5 +11,7 @@
  * callers to extend this list at runtime.
  */
 #define DWUNW_MAX_ARCH_COUNT 3
+#define DWUNW_MAX_PATH_LEN 512
+#define DWUNW_MODULE_CACHE_CAPACITY 16
 
 #endif /* DWUNW_CONFIG_H */

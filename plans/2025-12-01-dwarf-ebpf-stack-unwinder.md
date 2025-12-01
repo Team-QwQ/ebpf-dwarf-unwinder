@@ -27,10 +27,10 @@
    - 提供 x86_64 可用实现，arm64/mips32 stub，并以 `tests/unit/test_arch_ops` 验证接口覆盖度。
    - 定义包含架构标签、版本号的寄存器快照结构，兼容 BPF 事件承载格式。
 
-3. **DWARF/ELF 装载与索引**
-   - 实现以文件路径为唯一入口的 ELF 载入器；后续若需要支持 fd/内存缓冲，将另行扩展接口。
-   - 编写 DWARF 索引模块：解析 `.debug_info/.debug_frame/.eh_frame`，构建可重用的 CIE/FDE 索引；支持懒加载与缓存。
-   - 设计符号和模块缓存，支持多模块并行加载（对标 `ghostscope` 模型）。
+3. **DWARF/ELF 装载与索引**（已完成）
+   - 提供路径驱动的 ELF 载入器：校验 ELF 头、抓取 section table、收集 `.debug_info/.debug_frame/.eh_frame` 数据。
+   - 实现 DWARF 索引骨架 `dwunw_dwarf_index`，可惰性收集调试段并暴露缓存结构，解析逻辑待阶段 4 扩展。
+   - 引入模块缓存 `dwunw_module_cache`，基于路径复用 ELF/DWARF 句柄，配套单元测试验证无符号/命中/释放路径。
 
 4. **栈回溯引擎**
    - 实现 CFA/RA 解算器：利用 DWARF CFI 解析每一帧的寄存器恢复和返回地址。
@@ -54,7 +54,7 @@
 
 ## 交付里程碑
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成，GNU Make 构建、目录骨架与 PAL 就绪）
-2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。
+2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成，包含 loader/index/cache 与单测）
 3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。
 4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。
 5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。
@@ -73,5 +73,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**执行中（阶段 2 完成）**。
-- 下一阶段：继续 `/do`，推进阶段 3（DWARF/ELF 装载与索引）。
+- 计划状态：**执行中（阶段 3 完成）**。
+- 下一阶段：继续 `/do`，推进阶段 4（栈回溯引擎）。
