@@ -38,6 +38,15 @@ sequenceDiagram
 - `dwunw_capture()` 默认只会产生首帧，并以 `DWUNW_FRAME_FLAG_PARTIAL` 标记；当 DWARF CFI 与 `read_memory` 同时可用时，会自动继续展开，直到命中 FDE 终止或 `max_frames` 上限。
 - 任何阶段失败都会返回 `dwunw_status_t` 错误码；调用方应根据 `DWUNW_ERR_NO_DEBUG_DATA`、`DWUNW_ERR_IO` 等类型决定回退策略。
 
+## 多帧展开与回退
+
+1. 当调用者需要完整 DWARF 栈时，必须实现 `dwunw_memory_read_fn`，在用户态通过 `/proc/<pid>/mem` 或自有采样器的地址空间快照，完成与 `pread()` 语义一致的读操作；推荐在 `struct dwunw_unwind_request` 中仅在 reader 可用时设置 `read_memory`/`memory_ctx` 指针，其他情况保持 `NULL` 以表明单帧模式。
+2. 若 reader 打开或读取失败（例如缺少 `CAP_SYS_PTRACE`、进程默认不允许访问 `/proc/<pid>/mem`），上层应捕获非 `DWUNW_OK` 的返回值并回退到单帧打印；当 CLI 处于“强制模式”时，可直接将错误表面化，避免静默丢帧。
+3. `dwunw_capture()` 在检测到 `read_memory` 缺失、回调返回错误或 FDE 缺口时，会将最后一帧标记为 `DWUNW_FRAME_FLAG_PARTIAL`；调用者可据此提示“回退至帧 #0”，以便后续排查。
+4. 建议在日志中输出 reader 来源（`/proc/<pid>/mem`、core dump 等）与错误码，避免与 DWARF 解析失败混淆；测试过程中可通过向 reader 注入 `DWUNW_ERR_INVALID_ARG` 来模拟边界地址。
+
+> 提示：多帧展开通常需要额外权限（`CAP_SYS_PTRACE` 或 ptrace attach），在容器化环境运行时应提前确认安全策略，必要时在 CLI 中提供 `--allow-mem-reader` 开关，由操作者显式授权。
+
 ## 常见错误处理
 
 | 错误码 | 场景 | 建议回退 |

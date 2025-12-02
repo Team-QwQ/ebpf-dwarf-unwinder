@@ -43,9 +43,17 @@ sudo build/$(uname -m)/examples/memleak_bcc_dwunw/memleak_dwunw_user \
   -p $(pidof target) -O libc.so.6
 ```
 
-- `--dwunw-mode=force`：只输出由 `libdwunw` 解析的栈；
+- `--dwunw-mode=force`：只输出由 `libdwunw` 解析的栈；若无法读取 `/proc/<pid>/mem`（缺少 `CAP_SYS_PTRACE` 或进程设置了 Yama 限制）会直接报错；
 - `--dwunw-mode=fallback`（默认）：`dwunw_capture` 失败时回退到原有 `ksyms`/`syms_cache` 逻辑；
 - `--dwunw-mode=off`：完全关闭 `dwunw`，与 upstream 行为一致。
+
+推荐在可执行文件上授予 `CAP_SYS_PTRACE`，以便无需 root 也能读取 `/proc/<pid>/mem`：
+
+```bash
+sudo setcap cap_sys_ptrace=+ep build/$(uname -m)/examples/memleak_bcc_dwunw/memleak_dwunw_user
+```
+
+当运行在 `fallback` 模式且 reader 打开失败或 `dwunw_capture` 报错时，程序会打印 `[dwunw] multi-frame disabled...` 日志并重新发起单帧捕获，保证与 BCC 原版逻辑保持一致。
 
 Ring buffer 输出示例：
 
@@ -53,6 +61,12 @@ Ring buffer 输出示例：
 [dwunw] pid=1234 comm=python frames=2
   [dwunw] #0 pc=0x7f... sp=0x7ffc... ra=0x0 flags=0 module=/usr/bin/python3.11
 ```
+
+## Stage 8 增强内容
+
+1. `memleak_dwunw_user.c` 引入 `/proc/<pid>/mem` 读取器，为 DWARF CFI 提供访问被采样进程栈的能力，可一次返回 8 帧以内的完整调用栈。
+2. `--dwunw-mode=fallback` 会在 reader 失败时自动回退至首帧输出；`force` 模式则保持“失败即报错”语义，便于在生产中快速发现权限问题。
+3. 日志中新增 `multi-frame capture failed` 与 `multi-frame disabled` 两类提示，帮助区分 reader 权限不足与 DWARF 缺失两种异常。
 
 ## 验证步骤
 

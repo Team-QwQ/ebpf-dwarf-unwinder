@@ -8,6 +8,7 @@
 #endif
 #include <argp.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -119,6 +120,53 @@ static struct dwunw_runtime dwunw_rt = {
 	.ctx_ready = false,
 	.rb = NULL,
 };
+
+/* dwunw-added: simple /proc/<pid>/mem reader for multi-frame unwind */
+struct proc_mem_reader {
+	int fd;
+	uint32_t pid;
+};
+
+static void proc_mem_reader_close(struct proc_mem_reader *reader)
+{
+	if (reader && reader->fd >= 0) {
+		close(reader->fd);
+		reader->fd = -1;
+	}
+}
+
+static int proc_mem_reader_open(struct proc_mem_reader *reader, uint32_t pid)
+{
+	char path[64];
+
+	if (!reader)
+		return -EINVAL;
+
+	snprintf(path, sizeof(path), "/proc/%u/mem", pid);
+	reader->pid = pid;
+	reader->fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (reader->fd < 0)
+		return -errno;
+
+	return 0;
+}
+
+static dwunw_status_t proc_mem_reader_read(void *ctx, uint64_t address, void *dst, size_t size)
+{
+	struct proc_mem_reader *reader = ctx;
+	ssize_t n;
+
+	if (!reader || reader->fd < 0)
+		return DWUNW_ERR_INVALID_ARG;
+
+	n = pread(reader->fd, dst, size, (off_t)address);
+	if (n < 0)
+		return errno == EFAULT ? DWUNW_ERR_INVALID_ARG : DWUNW_ERR_IO;
+	if ((size_t)n != size)
+		return DWUNW_ERR_IO;
+
+	return DWUNW_OK;
+}
 
 struct allocation_node {
 	uint64_t address;
@@ -807,6 +855,12 @@ static int handle_dwunw_event(void *ctx __attribute__((unused)), void *data, siz
 
 	const struct memleak_dwunw_event *evt = data;
 	struct dwunw_regset regset = {};
+	struct proc_mem_reader reader = {
+		.fd = -1,
+		.pid = evt->tgid,
+	};
+	bool reader_enabled = false;
+	int reader_status = 0;
 	if (dwunw_regset_prepare(&regset, (enum dwunw_arch_id)evt->arch) != DWUNW_OK)
 		return 0;
 	copy_dwunw_regset(&regset, &evt->regset);
@@ -823,8 +877,46 @@ static int handle_dwunw_event(void *ctx __attribute__((unused)), void *data, siz
 		.options = DWUNW_OPTION_NONE,
 	};
 
+	if (dwunw_rt.mode != DWUNW_MODE_OFF) {
+		reader_status = proc_mem_reader_open(&reader, evt->tgid);
+		if (reader_status == 0) {
+			req.read_memory = proc_mem_reader_read;
+			req.memory_ctx = &reader;
+			reader_enabled = true;
+		} else if (dwunw_rt.mode == DWUNW_MODE_FORCE) {
+			fprintf(stderr,
+			        "[dwunw] --dwunw-mode=force requires /proc/%u/mem: %s\n",
+			        evt->tgid,
+			        strerror(-reader_status));
+			proc_mem_reader_close(&reader);
+			return 0;
+		} else {
+			fprintf(stderr,
+			        "[dwunw] multi-frame disabled for pid=%u: %s\n",
+			        evt->tgid,
+			        strerror(-reader_status));
+		}
+	}
+
 	size_t written = 0;
 	dwunw_status_t st = dwunw_capture(&dwunw_rt.ctx, &req, &written);
+	if (st != DWUNW_OK && reader_enabled && dwunw_rt.mode == DWUNW_MODE_FALLBACK) {
+		fprintf(stderr,
+		        "[dwunw] multi-frame capture failed pid=%u comm=%s err=%d, retry without reader\n",
+		        evt->tgid,
+		        evt->comm,
+		        st);
+		proc_mem_reader_close(&reader);
+		reader_enabled = false;
+		req.read_memory = NULL;
+		req.memory_ctx = NULL;
+		memset(frames, 0, sizeof(frames));
+		written = 0;
+		st = dwunw_capture(&dwunw_rt.ctx, &req, &written);
+	}
+
+	proc_mem_reader_close(&reader);
+
 	if (st != DWUNW_OK) {
 		fprintf(stderr,
 		        "[dwunw] capture failed pid=%u comm=%s err=%d\n",

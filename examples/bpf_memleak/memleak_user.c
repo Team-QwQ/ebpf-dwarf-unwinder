@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -26,6 +29,55 @@ struct app_config {
     int duration_sec;
     int verbose;
 };
+
+struct proc_mem_reader {
+    int fd;
+    uint32_t pid;
+};
+
+static void
+proc_mem_reader_close(struct proc_mem_reader *reader)
+{
+    if (reader && reader->fd >= 0) {
+        close(reader->fd);
+        reader->fd = -1;
+    }
+}
+
+static int
+proc_mem_reader_open(struct proc_mem_reader *reader, uint32_t pid)
+{
+    char path[64];
+
+    if (!reader)
+        return -EINVAL;
+
+    snprintf(path, sizeof(path), "/proc/%u/mem", pid);
+    reader->pid = pid;
+    reader->fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (reader->fd < 0)
+        return -errno;
+
+    return 0;
+}
+
+static dwunw_status_t
+proc_mem_reader_read(void *ctx, uint64_t address, void *dst, size_t size)
+{
+    struct proc_mem_reader *reader = ctx;
+    ssize_t n;
+
+    if (!reader || reader->fd < 0)
+        return DWUNW_ERR_INVALID_ARG;
+
+    n = pread(reader->fd, dst, size, (off_t)address);
+    if (n < 0)
+        return errno == EFAULT ? DWUNW_ERR_INVALID_ARG : DWUNW_ERR_IO;
+    if ((size_t)n != size)
+        return DWUNW_ERR_IO;
+
+    return DWUNW_OK;
+}
 
 static void
 handle_signal(int sig)
@@ -120,6 +172,12 @@ handle_event(void *ctx, void *data, size_t data_sz)
     struct dwunw_regset regs;
     struct dwunw_frame frames[8];
     struct dwunw_unwind_request req;
+    struct proc_mem_reader reader = {
+        .fd = -1,
+        .pid = evt->pid,
+    };
+    int reader_status;
+    int reader_enabled = 0;
     dwunw_status_t st;
     size_t written = 0;
     char module_path[DWUNW_MAX_PATH_LEN];
@@ -144,7 +202,36 @@ handle_event(void *ctx, void *data, size_t data_sz)
     req.max_frames = 8;
     req.options = DWUNW_OPTION_NONE;
 
+    reader_status = proc_mem_reader_open(&reader, evt->pid);
+    if (reader_status == 0) {
+        req.read_memory = proc_mem_reader_read;
+        req.memory_ctx = &reader;
+        reader_enabled = 1;
+    } else {
+        fprintf(stderr,
+                "[warn] open /proc/%u/mem failed: %s (falling back to frame[0])\n",
+                evt->pid,
+                strerror(-reader_status));
+    }
+
     st = dwunw_capture(unw_ctx, &req, &written);
+    if (st != DWUNW_OK && reader_enabled) {
+        fprintf(stderr,
+                "[warn] multi-frame capture failed err=%d pid=%u comm=%s, retrying without reader\n",
+                st,
+                evt->pid,
+                evt->comm);
+        proc_mem_reader_close(&reader);
+        reader_enabled = 0;
+        req.read_memory = NULL;
+        req.memory_ctx = NULL;
+        memset(frames, 0, sizeof(frames));
+        written = 0;
+        st = dwunw_capture(unw_ctx, &req, &written);
+    }
+
+    proc_mem_reader_close(&reader);
+
     if (st != DWUNW_OK) {
         fprintf(stderr,
                 "[warn] dwunw_capture error=%d pid=%u comm=%s\n",

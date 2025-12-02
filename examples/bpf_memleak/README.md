@@ -1,4 +1,4 @@
-# memleak eBPF 示例（阶段 5 交付）
+# memleak eBPF 示例（阶段 5/8）
 
 本目录提供与 `libdwunw` 集成的最小 memleak 工作流示例，包含以下组件：
 
@@ -6,7 +6,7 @@
 - `memleak_events.h`：BPF 与用户态共享的事件定义，兼容 `dwunw_regset` 转换。
 - `memleak_user.c`：用户态加载器，使用 libbpf 创建 ring buffer 订阅并调用 `dwunw_capture` 生成栈帧。
 
-> ⚠️ 该示例仅用于演示 Stage 5 所需的数据通路：事件 → `dwunw_regset` → `dwunw_capture`。实际 memleak 集成仍需根据生产宿主机、符号源以及 uprobe 点位进行细化。
+> ⚠️ 该示例用于演示 Stage 5 的基础数据通路以及 Stage 8 引入的多帧 DWARF 展开。实际 memleak 集成仍需根据生产宿主机、符号源以及 uprobe 点位进行细化。
 
 ## 先决条件
 
@@ -61,6 +61,12 @@
    - `--duration <sec>`：运行时长，默认 10s。
    - `--quiet`：禁用每次事件的详细打印。
 
+   > 多帧 DWARF 展开依赖 `/proc/<pid>/mem` 读取寄存器之上的调用栈槽。如果不想全程以 root 运行，可在构建产物上授予 `CAP_SYS_PTRACE`：
+   > ```bash
+   > sudo setcap cap_sys_ptrace=+ep build/$(uname -m)/examples/bpf_memleak/memleak_user
+   > ```
+   > 若权限不足，示例会自动回退到单帧输出并打印告警。
+
 2. 触发一些进程退出（如 `sleep 1`），即可看到示例输出：
 
    ```text
@@ -69,6 +75,13 @@
    ```
 
 3. 终止程序：Ctrl+C 或等待 `--duration` 结束。`memleak_user` 会调用 `dwunw_shutdown` 清理模块缓存。
+
+## Stage 8：多帧栈展开要点
+
+1. `memleak_user.c` 在接收到事件时会尝试打开 `/proc/<pid>/mem` 并注册 `read_memory` 回调，使 `dwunw_capture()` 能够沿 DWARF CFI 继续向上解析父帧。
+2. 如果进程不允许读取其 `mem` 文件（常见于容器或未授予 `CAP_SYS_PTRACE` 的环境），示例会打印 `[warn] open /proc/<pid>/mem failed` 并自动回退到单帧模式，保持与 Stage 5 行为兼容。
+3. 出于安全考虑，示例不会缓存文件描述符；每次事件结束都会主动关闭 `mem`，避免长时间持有高权限句柄。
+4. 需要验证多帧路径时，可借助 `tests/integration/test_capture_memleak` 或直接观察 `frames` 数组是否超过 1 条记录。
 
 ## 关键代码路径
 
@@ -98,4 +111,4 @@ rm -f examples/bpf_memleak/memleak_bpf.o
 make clean
 ```
 
-完成 Stage 5 后，下一阶段将聚焦跨架构支持与完整测试矩阵（计划阶段 6-7）。
+完成 Stage 8 后，后续阶段继续聚焦跨架构支持与完整测试矩阵（阶段 6-7 已完成，当前分支示例已具备多帧能力）。

@@ -20,11 +20,13 @@ graph TD
     A[make ARCH=x86_64 test] --> B(run unit + integration)
     C[make ARCH=arm64 test] --> B
     D[make ARCH=mips32 test] --> B
+    B --> E(dwunw multi-frame sanity)
 ```
 
 - `make test` 现在会执行单元测试（`tests/unit`）与集成测试（`tests/integration`）。
 - 运行前会自动构建 `tests/fixtures/dwarf_fixture`，并通过 `DWUNW_TEST_FIXTURE` 传递给所有测试程序。
 - 集成测试依赖 `memleak_events.h`，因此 `examples/bpf_memleak` 目录必须在仓库根目录存在。
+- Stage 8 增加了 `/proc/<pid>/mem` 读路径：执行 `sudo setcap cap_sys_ptrace=+ep build/<arch>/examples/bpf_memleak/memleak_user` 或直接以 root 运行，确保多帧展开可覆盖至少 3 帧；若权限不足，测试应记录“降级到单帧”日志并继续。
 
 ## DWARF 资产准备
 
@@ -37,6 +39,7 @@ graph TD
 - 在 Release 构建中启用 `-O2 -DNDEBUG`，使用 `perf stat` 包裹 `tests/integration/test_capture_memleak`，确保单次 `dwunw_capture` < 5µs。
 - 使用 `valgrind --tool=massif` 检查模块缓存泄漏，重点关注 `dwunw_module_cache_acquire` 未 release 的分支。
 - 对 arm64/mips32 交叉环境，可使用 `qemu-<arch>` 运行 `build/<arch>/tests/...` 二进制，结合 `DWUNW_TEST_FIXTURE` 生成对应 ELF。
+- 针对多帧回退，新增 `tests/integration/test_capture_memleak --no-mem-reader` 测试场景（可通过环境变量或 CLI 控制），验证 `DWUNW_ERR_IO` 时自动回退至首帧且不会崩溃；跨架构验证需同时覆盖“具备 mem reader”和“无 mem reader”两种运行模式。
 
 ## 文档与回归记录
 
