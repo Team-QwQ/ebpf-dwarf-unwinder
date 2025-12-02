@@ -128,3 +128,52 @@ flowchart LR
 - **跨架构寄存器差异**：以 `struct dwunw_arch_ops` 抽象寄存器访问，并为新架构编写独立测试。
 - **与 eBPF 上下文交互受限**：在内核态示例中说明如何通过辅助程序或用户态守护进程提供 DWARF 数据，确保可行性。
 
+## 新增：符号解析工具链
+参考 `ghostscope-compiler` 与 `ghostscope-dwarf` 中的符号/调试信息服务，新增一个位于 `src/utils/` 的符号解析子系统，用于在 `dwunw_capture` 得到 PC（指令地址）之后，通过 DWARF/ELF 元数据将地址转换为 “函数名 + 源文件/行号” 的人类可读结果。
+
+### 设计目标
+1. **自动解析**：调用者只需把 `dwunw_frame` 中的模块路径与 `pc` 提交给解析器，即可获得包含 `function`, `file`, `line`, `column` 的结构体，减少重复接入成本。
+2. **离线模式**：仅依赖本地 `.debug_info/.debug_line` 或独立调试文件，暂不引入 debuginfod/HTTP Symbol Server；若调试段缺失则返回部分信息或错误码。
+3. **缓存友好**：与模块缓存共享元数据，避免重复打开/解析 ELF 文件；在符号解析层维护按 `(module, build-id)` 键控的行号索引缓存。
+4. **可批处理**：一次调用可解析同一模块内的多个地址，面向 FlameGraph/采样工具减小 RPC 数量。
+
+### API 契约（新增）
+- `struct dwunw_symbol_input { const char *module_path; uint64_t build_id_hash; uint64_t pc; }`
+- `struct dwunw_symbol_info { char function[DWUNW_MAX_SYM]; char file[DWUNW_MAX_PATH_LEN]; uint32_t line; uint32_t column; uint32_t flags; }`
+- `dwunw_status_t dwunw_symbol_resolver_init(struct dwunw_symbol_resolver *resolver, const struct dwunw_symbol_resolver_cfg *cfg);`
+  - `cfg` 含预构建索引路径、缓存策略、并发度等参数，且默认仅访问本地文件系统。
+- `dwunw_status_t dwunw_symbol_resolve_batch(struct dwunw_symbol_resolver *resolver, const struct dwunw_symbol_input *inputs, size_t input_cnt, struct dwunw_symbol_info *outputs);`
+  - 批量解析输入；逐条返回状态码，解析失败的元素以 `DWUNW_FRAME_FLAG_PARTIAL` 标记。
+- `void dwunw_symbol_resolver_shutdown(struct dwunw_symbol_resolver *resolver);`
+
+解析流程需专注于本地路径：
+1. **本地符号索引**：直接访问模块缓存中已加载的 ELF 映像，读取 `.debug_aranges/.debug_info/.debug_line` 计算 `pc` 对应的编译单元与行号。若 `DWUNW_CFG_SYMBOL_DB` 指定了预构建索引（例如 sqlite/btree），则优先查询索引避免重复遍历。
+2. **独立调试文件查找**：当主可执行/so 被 strip 时，按 `build-id` 或 `debuglink` 规则在本地调试目录（如 `/usr/lib/debug` 或 cfg 指定目录）寻找配对的 `.debug` 文件；缺失时返回 `DWUNW_ERR_NO_DEBUG_INFO`。
+
+### 数据流
+```mermaid
+flowchart LR
+    subgraph Capture Path
+        A[dwunw_capture 输出帧] --> B[frame.pc/module]
+    end
+    subgraph Symbol Utils
+        B --> C[查模块缓存/索引]
+        C -->|命中| D[DWARF 行号映射]
+        C -->|缺失| E[本地调试文件查找]
+        E -->|可用| D
+        E -->|缺失| H[返回部分/错误]
+    end
+    D --> F[符号化结果]
+    F --> G[调用者打印/上传]
+```
+
+### 约束与非目标
+- 不在 `dwunw_capture` 内部直接输出符号化结果，保持栈回溯与符号解析解耦；解析由 utils 层单独暴露 API。
+- debuginfod/HTTP Symbol Server 暂不纳入实现范围；如需远端解析将在后续 /spec 评审。
+- 不复刻完整的 `addr2line` CLI；库仅提供 API，并提供 `examples/utils/symbolize_demo.c` 显示如何将输出格式化为 `func+file:line`。
+
+### 验证/验收
+- 在 CI 中新增符号解析单测：使用 fixture ELF（含/不含 `.debug_line`）验证行号定位结果，并对 strip 场景模拟本地 `.debug` 文件缺失/存在的分支。
+- 与 `examples/bpf_memleak/memleak_user` 打通：捕获回溯后通过 symbol resolver 打印函数/文件/行号，确认输出格式与 `addr2line -f -e` 对齐。
+- 性能：解析 100 个地址（同一模块）平均耗时 < 200µs；缓存命中率 > 95% 时不触发 I/O。
+

@@ -78,6 +78,17 @@
    - **文档同步**：在 `doc/api_usage.md` 与 `doc/dwunw_design.md` 描述新缓存生命周期，提醒调用方仍须调用 `_release` 才能让槽位进入温存状态；更新示例 README 的注意事项。
    - **回归验证**：`make test` 全量跑通，并在 perf/benchmark 文档中记录单进程重复回溯的时间对比（可选）。
 
+11. **符号解析工具链（规划中）**
+> 目标：落实 `/spec` 新增的“utils 级符号解析”能力，在 `dwunw_capture` 输出帧后，将 PC/模块路径解析为“函数名 + 源文件/行号”，仅依赖本地 DWARF 资产。
+    - **范围**：在 `src/utils/` 下新增 `symbol_resolver.*`，复用模块缓存/索引，为调用方提供 `dwunw_symbol_resolver_{init,resolve_batch,shutdown}` API；仅使用本地 `.debug_info/.debug_line` 或独立 `.debug` 文件，不引入 debuginfod。
+    - **需求拆分**：
+       1. `dwunw_symbol_store`：与模块缓存共享 ELF/DWARF 句柄，维护 `(module, build-id)` → 行号数据的 LRU 缓存，支持批处理输入；缓存命中直接返回函数/文件/行号。
+       2. **本地调试文件查找**：实现 `dwunw_debug_file_locator`，按 `.gnu_debuglink`/`build-id` 规则在 `/usr/lib/debug` 或 cfg 指定目录寻找调试文件；缺失时返回 `DWUNW_ERR_NO_DEBUG_INFO` 并在输出上打 `DWUNW_FRAME_FLAG_PARTIAL`。
+       3. **DWARF 行号解析**：封装 `.debug_aranges/.debug_info/.debug_line` 的查询与 PC→行号映射，可在初始化阶段构建轻量索引；支持同一模块多地址批处理，保证 <200µs/100 地址。
+       4. **API/线程模型**：resolver 默认受 `dwunw_context` 管理，线程安全策略（全局锁或 per-module 锁）需在计划中明确；调用方也可单独栈上创建 resolver（受 cfg 控制）。
+    - **集成**：在 `examples/bpf_memleak/memleak_user.c` 中新增可选符号化路径（CLI flags），并在 `doc/api_usage.md`、`doc/cross_arch_validation.md` 记录离线符号解析流程及缓存行为。
+    - **验证**：新增 `tests/unit/test_symbol_resolver.c`（行号查找、独立调试文件缺失/存在），更新 `tests/integration/test_capture_memleak` 或新增 `tests/integration/test_symbolized_capture` 展示“地址→符号”完整链路；记录性能基准。
+
 ## 交付里程碑
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成）
 2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成）
@@ -87,6 +98,7 @@
 6. **M6 - DWARF Multi-frame GA**：完成阶段 8 的全部任务，交付多帧栈展开、文档与测试。（状态：已完成）
 7. **M7 - Ghostscope 栈读取策略落地**：完成阶段 9 的 ptrace + `process_vm_readv` + `/proc/<pid>/mem` 回退实现、CLI/文档更新及测试。（状态：已完成）
 8. **M8 - 模块缓存温存与懒回收**：完成阶段 10 的语义/实现/文档/测试更新。（状态：已完成）
+9. **M9 - 符号解析工具链**：完成阶段 11 的本地符号解析 API、缓存、示例与测试。（状态：规划中）
 
 ## 风险与缓解
 - **DWARF 实现复杂**：参考 `ghostscope-dwarf` 与 elfutils 文档，先实现最常用的 CFI 路径，逐步增加特性；编写小型回归样例。
@@ -102,5 +114,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**阶段 10 已完成（缓存温存 + 懒回收已实装并验证），进入维护观察期**。
-- 下一阶段：根据后续需求决定是否启动新的 /spec（例如 DWARF-less fallback/Perf 集成）。
+- 计划状态：**进入阶段 11（符号解析工具链），待实现与验证**。
+- 下一阶段：阶段 11 完成后再评估是否继续推进其他 /spec（如 DWARF-less fallback/Perf 集成）。
