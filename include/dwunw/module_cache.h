@@ -12,15 +12,23 @@ struct dwunw_module_handle {
     uint32_t flags;
 };
 
+enum dwunw_module_slot_state {
+    DWUNW_MODULE_SLOT_UNUSED = 0,
+    DWUNW_MODULE_SLOT_ACTIVE = 1,
+    DWUNW_MODULE_SLOT_WARM   = 2,
+};
+
 struct dwunw_module_cache_entry {
     char path[DWUNW_MAX_PATH_LEN];
     struct dwunw_module_handle handle;
     uint32_t refcnt;
-    uint8_t in_use;
+    uint8_t state;
+    uint64_t warm_seq;
 };
 
 struct dwunw_module_cache {
     struct dwunw_module_cache_entry entries[DWUNW_MODULE_CACHE_CAPACITY];
+    uint64_t warm_clock;
 };
 
 void dwunw_module_cache_init(struct dwunw_module_cache *cache);

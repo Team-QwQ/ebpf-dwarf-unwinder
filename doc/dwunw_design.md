@@ -38,7 +38,7 @@
 | 结构体 | 说明 |
 | --- | --- |
 | `struct dwunw_context` | 库实例状态，包含 ABI 标记、模块缓存、栈读取器等，可在多线程场景外复用 |
-| `struct dwunw_module_cache` | 固定 16 槽 LRU cache，缓存 ELF/DWARF 句柄，需要 `acquire/release` 成对使用 |
+| `struct dwunw_module_cache` | 固定 16 槽缓存：`refcnt>0` 为活跃，`refcnt==0` 进入温存态以复用 ELF/DWARF，仅在缓存压力下才回收，与 `acquire/release` 成对使用 |
 | `struct dwunw_regset` | 标准化的寄存器窗口，包含 `pc/sp`、版本号与架构标签，由 `dwunw_regset_prepare` 初始化 |
 | `struct dwunw_unwind_request` | 一次回溯请求，包含目标模块路径、寄存器快照、帧数组、选项、`pid/tid` 以及可选自定义 reader |
 | `struct dwunw_frame` | 回溯结果，记录 `pc/sp/cfa/ra`、模块路径及标记位（如 `DWUNW_FRAME_FLAG_PARTIAL`） |
@@ -110,7 +110,7 @@ stateDiagram-v2
 
 2. **增量特性**
    - **CFI 扩展**：在 `src/dwarf/cfi.c` 中添加新的 DWARF opcode 支持，并在 `tests/unit/test_cfi.c` 增加合成样例。
-   - **缓存策略**：若需要超过 16 个模块，可调整 `DWUNW_MODULE_CACHE_CAPACITY` 并增加 LRU 算法测试。
+   - **缓存策略**：若需要超过 16 个模块，可调整 `DWUNW_MODULE_CACHE_CAPACITY` 并扩展温存槽回收策略（例如 LRU / aging），同时更新对应单元测试。
 
 3. **默认 reader 扩展**
    - 当前版本不对外暴露自定义 reader；如需支持远程采样等特殊场景，应在 `src/utils/stack_reader.*` 内扩展新的 backend，并由库内部选择，而非让调用方覆盖。

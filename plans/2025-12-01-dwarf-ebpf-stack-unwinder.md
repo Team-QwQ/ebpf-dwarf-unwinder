@@ -69,6 +69,15 @@
     - **示例/CLI**：`examples/bpf_memleak/memleak_user.c` 与 `examples/memleak_bcc_dwunw/memleak_dwunw_user.c` 直接填充 `pid/tid` 并信任默认 helper；`fallback/force` 模式通过清零 `pid/tid` 控制是否回退；README 说明默认 reader 所需权限与回退提示。
     - **文档/验证**：`doc/api_usage.md`、示例 README 更新默认 reader 的使用方式与权限要求；执行 `make test` 通过全部单元/集成测试（`tests/unit/*`, `tests/integration/test_capture_memleak`），确保新字段与上下文生命周期不破坏原有流程。
 
+10. **模块缓存温存与懒回收（已完成）**
+> 目标：实现 /spec 新增的缓存语义——`refcnt==0` 仅转入“温存”态而非立刻释放 ELF/DWARF，只有当 16 个槽都被占用且需要装载新模块时才真正回收。
+   - **语义更新**：扩展 `dwunw_module_cache_entry` 增加状态字段或复用 `in_use` 表示活跃/温存；`dwunw_module_cache_release()` 在 `refcnt` 降至 0 时仅标记可复用但保留 ELF+索引。
+   - **复用路径**：`dwunw_module_cache_acquire()` 命中温存槽时快速返回（无需重新解析），并将 `refcnt` 复位为 1。确保并发/错误路径处理一致。
+   - **回收策略**：实现最简单的 FIFO/轮询回收：在需要新槽但只有温存槽可释放时，选择最早进入温存态的 entry，真正关闭 ELF/重置索引；若全部槽仍活跃则继续返回 `DWUNW_ERR_CACHE_FULL`。
+   - **测试计划**：更新/新增 `tests/unit/test_module_cache` 场景，覆盖“温存复用”“温存回收”“槽位耗尽”三类路径；必要时在 integration test 中模拟频繁 acquire/release 以验证性能收益。
+   - **文档同步**：在 `doc/api_usage.md` 与 `doc/dwunw_design.md` 描述新缓存生命周期，提醒调用方仍须调用 `_release` 才能让槽位进入温存状态；更新示例 README 的注意事项。
+   - **回归验证**：`make test` 全量跑通，并在 perf/benchmark 文档中记录单进程重复回溯的时间对比（可选）。
+
 ## 交付里程碑
 1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成）
 2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成）
@@ -77,6 +86,7 @@
 5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。（状态：已完成）
 6. **M6 - DWARF Multi-frame GA**：完成阶段 8 的全部任务，交付多帧栈展开、文档与测试。（状态：已完成）
 7. **M7 - Ghostscope 栈读取策略落地**：完成阶段 9 的 ptrace + `process_vm_readv` + `/proc/<pid>/mem` 回退实现、CLI/文档更新及测试。（状态：已完成）
+8. **M8 - 模块缓存温存与懒回收**：完成阶段 10 的语义/实现/文档/测试更新。（状态：已完成）
 
 ## 风险与缓解
 - **DWARF 实现复杂**：参考 `ghostscope-dwarf` 与 elfutils 文档，先实现最常用的 CFI 路径，逐步增加特性；编写小型回归样例。
@@ -92,5 +102,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**阶段 9 完成，进入维护观察期**。
+- 计划状态：**阶段 10 已完成（缓存温存 + 懒回收已实装并验证），进入维护观察期**。
 - 下一阶段：根据后续需求决定是否启动新的 /spec（例如 DWARF-less fallback/Perf 集成）。

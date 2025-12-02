@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "cfi.h"
 
@@ -41,12 +42,14 @@ struct reg_rule {
 	int64_t offset;
 };
 
+/* Tracks the DWARF virtual machine state while replaying CIE/FDE programs. */
 struct cfa_state {
 	uint16_t cfa_reg;
 	int64_t cfa_offset;
 	struct reg_rule regs[DWUNW_REGSET_SLOTS];
 };
 
+/* Simple growable arrays keep parsing logic independent from libc extras. */
 struct cie_vector {
 	struct dwunw_cie_record *data;
 	size_t count;
@@ -59,6 +62,7 @@ struct fde_vector {
 	size_t capacity;
 };
 
+/* Establish the DWARF-specified defaults before executing any opcode. */
 static void
 cfa_state_reset(struct cfa_state *state)
 {
@@ -72,6 +76,8 @@ cfa_state_reset(struct cfa_state *state)
 	}
 }
 
+/* Tiny vector implementation keeps allocations amortized without pulling in
+ * non-portable helpers. */
 static dwunw_status_t
 vector_reserve(void **data, size_t elem_size, size_t *capacity, size_t min_cap)
 {
@@ -237,12 +243,14 @@ read_fixed_size(const uint8_t **cursor, const uint8_t *end, size_t size, uint64_
 	return DWUNW_OK;
 }
 
+/* .eh_frame encodes pointers relative to different bases; this routine
+ * normalizes them into absolute addresses understood by the unwinder. */
 static dwunw_status_t
 read_encoded_pointer(uint8_t encoding,
-					 const uint8_t **cursor,
-					 const uint8_t *section_start,
-					 const uint8_t *end,
-					 uint64_t *value)
+			 const uint8_t **cursor,
+			 const uint8_t *section_start,
+			 const uint8_t *end,
+			 uint64_t *value)
 {
 	uint64_t base = 0;
 	uint64_t raw = 0;
@@ -303,13 +311,15 @@ read_encoded_pointer(uint8_t encoding,
 	return DWUNW_OK;
 }
 
+/* A CIE describes shared defaults for a batch of FDEs. Capture only the
+ * fields we need later when executing unwind bytecode. */
 static dwunw_status_t
 parse_cie(const struct dwunw_dwarf_section *section,
-		  const uint8_t *entry_start,
-		  const uint8_t *payload,
-		  const uint8_t *entry_end,
-		  bool is_eh,
-		  struct cie_vector *cies)
+	  const uint8_t *entry_start,
+	  const uint8_t *payload,
+	  const uint8_t *entry_end,
+	  bool is_eh,
+	  struct cie_vector *cies)
 {
 	struct dwunw_cie_record cie;
 	const char *augmentation;
@@ -397,15 +407,17 @@ parse_cie(const struct dwunw_dwarf_section *section,
 	return cie_vector_append(cies, &cie);
 }
 
+/* Each FDE covers a PC range; link it back to its parent CIE and cache the
+ * decoded instruction stream for later evaluation. */
 static dwunw_status_t
 parse_fde(const struct dwunw_dwarf_section *section,
-		  const uint8_t *entry_start,
-		  uint32_t cie_pointer,
-		  const uint8_t *payload,
-		  const uint8_t *entry_end,
-		  bool is_eh,
-		  const struct cie_vector *cies,
-		  struct fde_vector *fdes)
+	  const uint8_t *entry_start,
+	  uint32_t cie_pointer,
+	  const uint8_t *payload,
+	  const uint8_t *entry_end,
+	  bool is_eh,
+	  const struct cie_vector *cies,
+	  struct fde_vector *fdes)
 {
 	const struct dwunw_cie_record *cie;
 	struct dwunw_fde_record fde;
@@ -466,11 +478,13 @@ parse_fde(const struct dwunw_dwarf_section *section,
 	return fde_vector_append(fdes, &fde);
 }
 
+/* Walk an entire .debug_frame or .eh_frame section, demultiplexing the mixed
+ * stream of CIEs and FDEs into separate tables. */
 static dwunw_status_t
 parse_section(const struct dwunw_dwarf_section *section,
-			  bool is_eh,
-			  struct cie_vector *cies,
-			  struct fde_vector *fdes)
+	  bool is_eh,
+	  struct cie_vector *cies,
+	  struct fde_vector *fdes)
 {
 	const uint8_t *ptr;
 	const uint8_t *end;
@@ -614,13 +628,15 @@ reg_value(const struct dwunw_regset *regs, uint16_t reg)
 	return 0;
 }
 
+/* Resolve a DW_CFA rule into an actual register value by reading memory
+ * relative to the computed CFA. */
 static dwunw_status_t
 apply_rule(enum rule_kind kind,
-		   int64_t offset,
-		   uint64_t cfa,
-		   dwunw_memory_read_fn reader,
-		   void *reader_ctx,
-		   uint64_t *out_value)
+	   int64_t offset,
+	   uint64_t cfa,
+	   dwunw_memory_read_fn reader,
+	   void *reader_ctx,
+	   uint64_t *out_value)
 {
 	dwunw_status_t st;
 
@@ -635,14 +651,16 @@ apply_rule(enum rule_kind kind,
 	}
 }
 
+/* Interpret the DWARF call-frame opcodes until we either finish the program
+ * or advance past the target PC. */
 static dwunw_status_t
 execute_cfi(const struct dwunw_cie_record *cie,
-			const uint8_t *program,
-			size_t program_size,
-			uint64_t pc_begin,
-			uint64_t target_pc,
-			struct cfa_state *state,
-			const struct cfa_state *initial)
+		const uint8_t *program,
+		size_t program_size,
+		uint64_t pc_begin,
+		uint64_t target_pc,
+		struct cfa_state *state,
+		const struct cfa_state *initial)
 {
 	const uint8_t *cursor = program;
 	const uint8_t *end = program + program_size;
@@ -843,6 +861,7 @@ dwunw_cfi_eval(const struct dwunw_fde_record *fde,
 			   void *reader_ctx,
 			   struct dwunw_frame *frame)
 {
+    /* Replay the CIE defaults and FDE instructions to recover caller state. */
 	struct cfa_state current;
 	struct cfa_state initial;
 	dwunw_status_t st;

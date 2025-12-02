@@ -4,6 +4,7 @@
 
 #include "cfi.h"
 
+/* Tear down any cached CIE/FDE tables before reusing the index. */
 void
 dwunw_dwarf_index_reset(struct dwunw_dwarf_index *index)
 {
@@ -17,6 +18,7 @@ dwunw_dwarf_index_reset(struct dwunw_dwarf_index *index)
     memset(index, 0, sizeof(*index));
 }
 
+/* Harvest the DWARF sections and pre-parse their call-frame tables. */
 dwunw_status_t
 dwunw_dwarf_index_init(struct dwunw_dwarf_index *index,
                       const struct dwunw_elf_handle *handle)
@@ -29,11 +31,14 @@ dwunw_dwarf_index_init(struct dwunw_dwarf_index *index,
 
     dwunw_dwarf_index_reset(index);
 
+    /* Snapshot the raw section slices we care about (.debug_* + .eh_frame). */
     status = dwunw_elf_collect_dwarf(handle, &index->sections);
     if (status != DWUNW_OK) {
         return status;
     }
 
+    /* Build the lightweight arrays of CIE/FDE records so future lookups can
+     * reuse the decoded metadata instead of reparsing the sections. */
     status = dwunw_cfi_build(&index->sections,
                              &index->cies,
                              &index->cie_count,

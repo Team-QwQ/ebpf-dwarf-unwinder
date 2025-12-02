@@ -13,6 +13,8 @@
 
 #include "dwunw/elf_loader.h"
 
+/* Pull the entire ELF image into memory so later section slices are
+ * O(1) pointer math instead of repeat syscalls. */
 static dwunw_status_t
 dwunw_elf_load_image(struct dwunw_elf_handle *handle, int fd, size_t size)
 {
@@ -34,6 +36,7 @@ dwunw_elf_load_image(struct dwunw_elf_handle *handle, int fd, size_t size)
     return DWUNW_OK;
 }
 
+/* Only parse enough of the ELF header to discover the section table layout. */
 static dwunw_status_t
 dwunw_elf_parse_headers(struct dwunw_elf_handle *handle)
 {
@@ -83,6 +86,7 @@ dwunw_elf_parse_headers(struct dwunw_elf_handle *handle)
     return DWUNW_OK;
 }
 
+/* Helper to grab a section header with strict bounds checking. */
 static const uint8_t *
 dwunw_elf_section_header(const struct dwunw_elf_handle *handle, uint16_t index)
 {
@@ -95,6 +99,7 @@ dwunw_elf_section_header(const struct dwunw_elf_handle *handle, uint16_t index)
     return (const uint8_t *)handle->image + offset;
 }
 
+/* Section-name lookup is deferred until here so openers stay lightweight. */
 static dwunw_status_t
 dwunw_elf_locate_shstrtab(struct dwunw_elf_handle *handle)
 {
@@ -204,6 +209,7 @@ dwunw_elf_close(struct dwunw_elf_handle *handle)
     memset(handle, 0, sizeof(*handle));
 }
 
+/* Convert an ELF section header into a DWARF slice pointing inside the image. */
 static dwunw_status_t
 dwunw_elf_section_slice(const struct dwunw_elf_handle *handle,
                       struct dwunw_dwarf_section *out,
@@ -286,11 +292,14 @@ dwunw_elf_collect_dwarf(const struct dwunw_elf_handle *handle,
 
     memset(sections, 0, sizeof(*sections));
 
+    /* .debug_info is the minimum required payload for any DWARF walk. */
     status = dwunw_elf_get_section(handle, ".debug_info", &sections->debug_info);
     if (status != DWUNW_OK) {
         return status;
     }
 
+    /* The frame sections are optional; normalize missing ones to an empty
+     * descriptor so upstream callers do not need special cases. */
     status = dwunw_elf_get_section(handle, ".debug_frame", &sections->debug_frame);
     if (status == DWUNW_ERR_NO_DEBUG_DATA) {
         memset(&sections->debug_frame, 0, sizeof(sections->debug_frame));

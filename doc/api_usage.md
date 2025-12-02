@@ -8,6 +8,8 @@
 2. 每次捕获前检查 `ctx->module_cache_ready`，异常情况下优雅回退。
 3. 结束时调用 `dwunw_shutdown()`，该函数会主动 flush 16 槽的 `dwunw_module_cache`，释放所有 ELF/DWARF 句柄。
 
+- `dwunw_module_cache_release()` 现在只会把槽位标记为“温存”（`refcnt==0` 但 ELF/DWARF 仍驻留），后续再次 `acquire` 相同路径时无需重新解析；只有当 16 个槽都已被活跃/温存条目占满且需要新模块时，库才会选择最老的温存槽并真正关闭其 ELF/DWARF。
+
 > **注意**：模块缓存不是线程安全的。如果在多线程/多 CPU 事件处理器上使用，需要在调用 `dwunw_capture()` 前加锁或实现更高层的串行化。
 
 ## 寄存器窗口准备
@@ -52,11 +54,12 @@ sequenceDiagram
 | 错误码 | 场景 | 建议回退 |
 | --- | --- | --- |
 | `DWUNW_ERR_NO_DEBUG_DATA` | ELF 缺少 `.debug_info`/`.eh_frame` | 转用 FP unwinder 或跳过事件 |
-| `DWUNW_ERR_CACHE_FULL` | 同时打开超过 16 个模块 | 在调用前主动 release 冷门模块，或扩容 `DWUNW_MODULE_CACHE_CAPACITY` |
+| `DWUNW_ERR_CACHE_FULL` | 16 个槽全部处于“活跃”状态，且无温存槽可回收 | 迁移部分请求到新 `dwunw_context` 或扩容 `DWUNW_MODULE_CACHE_CAPACITY`；确保调用方及时 `release` 以触发温存 |
 | `DWUNW_ERR_UNSUPPORTED_ARCH` | `arch_id` 不在注册表中 | 检查事件侧是否正确设置 `arch` | 
 
 ## 性能/内存提示
 
 - `dwunw_elf_open()` 会一次性 mmap/复制整个 ELF 文件，建议在控制面的模块集合内复用；不要对短期临时路径重复打开。
+- 温存槽会常驻 ELF/DWARF 映像，只有在缓存压力下才回收；若需要腾出内存，可显式调用 `dwunw_module_cache_flush()` 或重新初始化上下文。
 - 将 `memleak_event` 放置在 BPF ring buffer 时，应复用静态缓冲区，避免在热路径中频繁 `memcpy`。
 - 建议在处理每 N 次 unwinding 后调用 `dwunw_module_cache_flush()`（例如重新部署时），防止旧版本 ELF 持续驻留内存。
