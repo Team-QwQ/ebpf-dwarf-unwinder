@@ -36,6 +36,7 @@ INTEGRATION_BINS := $(patsubst tests/integration/%.c,$(BUILD_ROOT)/tests/integra
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic
 CFLAGS += -fPIC -ffunction-sections -fdata-sections
 CFLAGS += -I$(INCLUDE_ROOT)
+CFLAGS += -Isrc
 CFLAGS += -Iexamples/bpf_memleak
 CFLAGS += $(DWUNW_ARCH_CFLAGS)
 EXAMPLE_CFLAGS := $(filter-out -pedantic,$(CFLAGS))

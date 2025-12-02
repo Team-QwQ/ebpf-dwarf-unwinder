@@ -30,6 +30,7 @@ test_single_frame(void)
     regs.sp = 0x1000;
     regs.pc = 0x2000;
 
+    memset(&req, 0, sizeof(req));
     req.module_path = get_fixture_path();
     req.regs = &regs;
     req.frames = frames;

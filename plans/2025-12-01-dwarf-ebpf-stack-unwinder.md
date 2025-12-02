@@ -1,9 +1,9 @@
 # 计划：DWARF eBPF 栈回溯库
 
 ## 概述
-- **范围**：实现 `specs/2025-12-01-dwarf-ebpf-stack-unwinder.md` 中定义的静态库、示例与文档，重点支持 `libbpf-tools/memleak` 的 eBPF 场景。
-- **目标**：在不修改内核的前提下，提供跨架构、可插拔的 DWARF 栈回溯实现，并给出与 memleak 集成的可验证示例。
-- **交付物**：`libdwunw.a`、API/架构文档、`examples/bpf_memleak/` 示例、针对 x86_64/arm64/mips32 的测试资产。
+- **范围**：实现 `specs/2025-12-01-dwarf-ebpf-stack-unwinder.md` 中定义的静态库、示例与文档，重点支持 `libbpf-tools/memleak` 的 eBPF 场景，并在最新阶段扩展到“完整 DWARF 栈展开（多帧回溯）”。
+- **目标**：在不修改内核的前提下，提供跨架构、可插拔的 DWARF 栈回溯实现，先保证根帧，再完成 FDE/CFI 解析与多帧输出，同时给出与 memleak 集成的可验证示例。
+- **交付物**：`libdwunw.a`、API/架构文档、`examples/bpf_memleak/` 与 `examples/memleak_bcc_dwunw/` 示例、针对 x86_64/arm64/mips32 的测试资产以及新增的多帧回溯测试工具。
 
 ## 依赖与前置条件
 1. 现有子模块：`src/ref/ghostscope`、`src/ref/parca`、`src/ref/bcc`（v0.32.0）可作为参考，避免直接复制代码。
@@ -53,12 +53,21 @@
    - `doc/`: 编写 `doc/api_usage.md`（API 调用顺序）与 `doc/cross_arch_validation.md`（交叉编译、性能、DWARF 资产），补齐 Stage 7 所需指南。
    - memleak 集成指南继续由 `examples/bpf_memleak/README.md` 承载，并在新增文档中引用。
 
+8. **DWARF 多帧栈展开（已完成）**
+> 说明：阶段 8 复用了 ghostscope/parca 的设计思路，实现了 CFI 解析+执行的最小闭环，并在 memleak 示例中保持可选开启。
+   - **FDE 解析管线**：`src/dwarf/cfi.[ch]` 内实现 `.eh_frame/.debug_frame` 解析、CIE/FDE 链接、LEB128/encoded pointer 读取，并在 `dwunw_dwarf_index` 中缓存 CFI 表以便按 PC 查找。
+   - **栈展开执行器**：扩展 `dwunw_capture()`，基于新的 `dwunw_cfi_eval()` 循环生成多帧；当调用者提供 `dwunw_memory_read_fn` 时即可继续展开，否则保持首帧降级。新增 `dwunw_unwind_request.read_memory`/`memory_ctx` 以让调用方插件任意地址读取逻辑。
+   - **掌控回退**：若模块缺少 CFI，`dwunw_cfi_build()` 返回 `DWUNW_ERR_NO_DEBUG_DATA` 并在 capture 层静默降级；FDE 执行失败时返回对应错误码供调用方转入 FP 链或直接忽略。
+   - **测试与验证**：新增 `tests/unit/test_cfi`（合成 .debug_frame、验证 CFI 执行），并更新 `test_unwinder`、`test_capture_memleak` 以覆盖新的输入要求；`Makefile` 增加 `-Isrc` 让内部头文件可复用于测试。
+   - **文档更新**：`doc/api_usage.md` 补充“多帧回溯/内存读取回调”说明，强调未提供回调时的单帧退化行为及错误码含义。
+
 ## 交付里程碑
-1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成，GNU Make 构建、目录骨架与 PAL 就绪）
-2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成，包含 loader/index/cache 与单测）
-3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。（状态：已完成，`dwunw_capture` + 单帧能力上线）
-4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。（状态：已完成，示例包含 README、BPF 与用户态 loader）
-5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。
+1. **M1 - Skeleton Ready**：完成阶段 1-2，产出初版库骨架与 x86_64 ops。（状态：已完成）
+2. **M2 - DWARF Loader**：阶段 3 完成，可独立加载并索引 DWARF。（状态：已完成）
+3. **M3 - Unwinding Core**：阶段 4 完成，具备基本回溯能力及单元测试。（状态：已完成）
+4. **M4 - eBPF Integration**：阶段 5 完成，`examples/bpf_memleak/` 可跑通。（状态：已完成）
+5. **M5 - Multi-arch + Tests**：阶段 6-7 完成，arm64/mips32 支持与完整测试/文档就绪。（状态：已完成）
+6. **M6 - DWARF Multi-frame GA**：完成阶段 8 的全部任务，交付多帧栈展开、文档与测试。（状态：已完成）
 
 ## 风险与缓解
 - **DWARF 实现复杂**：参考 `ghostscope-dwarf` 与 elfutils 文档，先实现最常用的 CFI 路径，逐步增加特性；编写小型回归样例。
@@ -74,5 +83,5 @@
 - **性能测试**：提供脚本在 x86_64 主机上重复回溯，确保 95% 调用 <5µs。
 
 ## 审批
-- 计划状态：**已完成（阶段 7 完成）**。
-- 下一阶段：根据后续需求进入维护模式或新的 /spec。
+- 计划状态：**阶段 8 完成，进入维护观察期**。
+- 下一阶段：根据后续需求决定是否启动新的 /spec（例如 DWARF-less fallback/Perf 集成）。

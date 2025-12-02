@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "dwunw/dwarf_index.h"
 #include "dwunw/elf_loader.h"
@@ -17,6 +18,8 @@ static void
 test_reset_zeroes_everything(void)
 {
     struct dwunw_dwarf_index index;
+
+    memset(&index, 0, sizeof(index));
 
     index.flags = 0xdeadbeef;
     index.sections.debug_info.data = (const unsigned char *)0x1;
@@ -48,6 +51,8 @@ test_init_with_fixture(void)
     st = dwunw_elf_open(fixture, &handle);
     assert(st == DWUNW_OK);
 
+    memset(&index, 0, sizeof(index));
+
     st = dwunw_dwarf_index_init(&index, &handle);
     assert(st == DWUNW_OK || st == DWUNW_ERR_NO_DEBUG_DATA);
 
@@ -72,6 +77,7 @@ test_invalid_args(void)
     assert(dwunw_dwarf_index_init(NULL, NULL) == DWUNW_ERR_INVALID_ARG);
 
     assert(dwunw_elf_open(fixture, &handle) == DWUNW_OK);
+    memset(&index, 0, sizeof(index));
     assert(dwunw_dwarf_index_init(&index, NULL) == DWUNW_ERR_INVALID_ARG);
     dwunw_elf_close(&handle);
 

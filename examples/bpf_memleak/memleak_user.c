@@ -137,6 +137,7 @@ handle_event(void *ctx, void *data, size_t data_sz)
     }
 
     memset(frames, 0, sizeof(frames));
+    memset(&req, 0, sizeof(req));
     req.module_path = module_path;
     req.regs = &regs;
     req.frames = frames;

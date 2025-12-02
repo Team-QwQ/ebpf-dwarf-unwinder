@@ -5,8 +5,15 @@
 #include "dwunw/elf_loader.h"
 #include "dwunw/status.h"
 
+struct dwunw_cie_record;
+struct dwunw_fde_record;
+
 struct dwunw_dwarf_index {
     struct dwunw_dwarf_sections sections;
+    struct dwunw_cie_record *cies;
+    size_t cie_count;
+    struct dwunw_fde_record *fdes;
+    size_t fde_count;
     uint32_t flags;
 };
 

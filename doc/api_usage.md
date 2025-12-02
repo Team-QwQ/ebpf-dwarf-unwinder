@@ -34,7 +34,8 @@ sequenceDiagram
     User->>Cache: dwunw_module_cache_release()
 ```
 
-- `dwunw_capture()` 目前最多输出首帧，并以 `DWUNW_FRAME_FLAG_PARTIAL` 标记。要拓展更多帧，需要新增 DWARF FDE 解析逻辑（参见 `src/dwarf/`）。
+- `struct dwunw_unwind_request` 在构造时应显式清零；当希望展开多帧时，必须提供 `read_memory`/`memory_ctx`，用于按地址读取父帧栈槽。回调的语义与 `pread()` 类似：若地址超界应返回 `DWUNW_ERR_INVALID_ARG`。
+- `dwunw_capture()` 默认只会产生首帧，并以 `DWUNW_FRAME_FLAG_PARTIAL` 标记；当 DWARF CFI 与 `read_memory` 同时可用时，会自动继续展开，直到命中 FDE 终止或 `max_frames` 上限。
 - 任何阶段失败都会返回 `dwunw_status_t` 错误码；调用方应根据 `DWUNW_ERR_NO_DEBUG_DATA`、`DWUNW_ERR_IO` 等类型决定回退策略。
 
 ## 常见错误处理

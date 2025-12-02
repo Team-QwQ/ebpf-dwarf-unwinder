@@ -3,6 +3,7 @@
 #include "dwunw/dwunw_api.h"
 #include "dwunw/module_cache.h"
 #include "dwunw/unwind.h"
+#include "dwarf/cfi.h"
 
 static dwunw_status_t
 prepare_root_frame(const struct dwunw_regset *regs, struct dwunw_frame *frame)
@@ -51,8 +52,8 @@ prepare_root_frame(const struct dwunw_regset *regs, struct dwunw_frame *frame)
 
 dwunw_status_t
 dwunw_capture(struct dwunw_context *ctx,
-             const struct dwunw_unwind_request *request,
-             size_t *frames_written)
+              const struct dwunw_unwind_request *request,
+              size_t *frames_written)
 {
     struct dwunw_module_handle *handle = NULL;
     dwunw_status_t status;
@@ -85,6 +86,48 @@ dwunw_capture(struct dwunw_context *ctx,
                 sizeof(request->frames[0].module_path) - 1);
         request->frames[0].module_path[sizeof(request->frames[0].module_path) - 1] = '\0';
         produced = 1;
+
+        if (request->max_frames > 1 && handle->index.fde_count > 0 &&
+            request->read_memory) {
+            struct dwunw_regset cursor_regs = *request->regs;
+            const struct dwunw_arch_ops *ops = dwunw_arch_from_regset(&cursor_regs);
+
+            while (produced < request->max_frames) {
+                const struct dwunw_fde_record *fde;
+                struct dwunw_frame *cursor_frame;
+                dwunw_status_t unwind_status;
+
+                fde = dwunw_cfi_find_fde(handle->index.fdes,
+                                         handle->index.fde_count,
+                                         cursor_regs.pc);
+                if (!fde) {
+                    break;
+                }
+
+                cursor_frame = &request->frames[produced];
+                unwind_status = dwunw_cfi_eval(fde,
+                                               cursor_regs.pc,
+                                               &cursor_regs,
+                                               request->read_memory,
+                                               request->memory_ctx,
+                                               cursor_frame);
+                if (unwind_status != DWUNW_OK) {
+                    status = unwind_status;
+                    break;
+                }
+
+                cursor_frame->flags &= ~DWUNW_FRAME_FLAG_PARTIAL;
+                strncpy(cursor_frame->module_path,
+                        request->module_path,
+                        sizeof(cursor_frame->module_path) - 1);
+                cursor_frame->module_path[sizeof(cursor_frame->module_path) - 1] = '\0';
+                produced++;
+
+                if (ops && ops->normalize) {
+                    ops->normalize(&cursor_regs);
+                }
+            }
+        }
     }
 
     dwunw_module_cache_release(&ctx->module_cache, handle);
