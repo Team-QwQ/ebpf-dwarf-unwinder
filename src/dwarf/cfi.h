@@ -8,6 +8,11 @@
 #include "dwunw/status.h"
 #include "dwunw/unwind.h"
 
+typedef dwunw_status_t (*dwunw_memory_read_fn)(void *ctx,
+                                               uint64_t address,
+                                               void *dst,
+                                               size_t size);
+
 struct dwunw_cie_record {
     uint8_t version;
     uint8_t address_size;

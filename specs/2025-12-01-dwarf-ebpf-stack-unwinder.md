@@ -64,17 +64,17 @@
   - 需要 `CAP_SYS_PTRACE` 或已 attach 的 ptrace 权限，按 Ghostscope 的守护流程实现；
   - 错误码（如 `ENOSYS`、`EPERM`、`EFAULT`）需回传给 `dwunw_capture`，调用方再决定是否降级。
 3. 当 `process_vm_readv` 不可用（内核未启用、权限不足、seccomp 拦截等）时，回退到 `/proc/<pid>/mem` 读取：
-  - 仅在 reader 打开成功后才设置 `dwunw_unwind_request.read_memory`；
+  - reader 由库内部全权管理，对外不再暴露自定义注册接口；
   - 读取失败或偏移越界返回 `DWUNW_ERR_IO`/`DWUNW_ERR_INVALID_ARG`，库层会继续输出部分帧。
-4. 栈读取接口面向 eBPF 场景提供默认实现：库提供 `process_vm_readv` + `/proc/<pid>/mem` 双路径 reader，并作为唯一推荐实现；当前阶段不再要求调用者自行注册 reader。
+4. 栈读取接口面向 eBPF 场景提供默认实现：库提供 `process_vm_readv` + `/proc/<pid>/mem` 双路径 reader，并作为唯一推荐实现；规范明确禁止调用方覆盖或注册自定义 reader，以降低集成复杂度。
 5. 安全性要求：
   - 禁止长期持有 `/proc/<pid>/mem` FD，逐事件打开/关闭；
   - 记录 attach/detach 行为的审计日志，帮助排查意外阻塞；
   - 对不可暂停的进程（如设置了 `PR_SET_DUMPABLE=0`）必须在 CLI 层显式告警，防止静默丢帧。
 6. 为了降低调用方的重复实现成本，库层需在 `src/utils/stack_reader.*` 形式提供一个“默认启用”的 helper：
   - API 暴露 `dwunw_stack_reader_{init,attach,read,detach}`，内部实现 `ptrace + process_vm_readv + /proc/<pid>/mem` 组合流程；
-  - 默认情况下，`dwunw_capture` 应自动使用该 helper（只要调用方未主动指定 `dwunw_unwind_request.read_memory`），即“库内 reader 先尝试，调用方自带 reader 需要显式覆盖”；
-  - 若未来扩展到非 eBPF 场景再评估开放自定义 reader，但当前交付内仅支持库内默认实现。
+  - 默认情况下，`dwunw_capture` 必须自动使用该 helper，不允许调用方覆写 reader 逻辑；
+  - 若未来扩展到非 eBPF 场景再评估是否重新开放自定义 reader，本阶段视为不支持。
 
 ## 性能与健壮性要求
 - 热路径（栈回溯循环）禁止重复 malloc/free；需复用调用方提供的帧缓存。

@@ -18,11 +18,6 @@ struct dwunw_frame {
     char module_path[DWUNW_MAX_PATH_LEN];
 };
 
-typedef dwunw_status_t (*dwunw_memory_read_fn)(void *ctx,
-                                               uint64_t address,
-                                               void *dst,
-                                               size_t size);
-
 struct dwunw_unwind_request {
     const char *module_path;
     const struct dwunw_regset *regs;
@@ -31,8 +26,6 @@ struct dwunw_unwind_request {
     uint32_t options;
     pid_t pid;
     pid_t tid;
-    dwunw_memory_read_fn read_memory;
-    void *memory_ctx;
 };
 
 enum {

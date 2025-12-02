@@ -56,15 +56,15 @@
 8. **DWARF 多帧栈展开（已完成）**
 > 说明：阶段 8 复用了 ghostscope/parca 的设计思路，实现了 CFI 解析+执行的最小闭环，并在 memleak 示例中保持可选开启。
    - **FDE 解析管线**：`src/dwarf/cfi.[ch]` 内实现 `.eh_frame/.debug_frame` 解析、CIE/FDE 链接、LEB128/encoded pointer 读取，并在 `dwunw_dwarf_index` 中缓存 CFI 表以便按 PC 查找。
-   - **栈展开执行器**：扩展 `dwunw_capture()`，基于新的 `dwunw_cfi_eval()` 循环生成多帧；当调用者提供 `dwunw_memory_read_fn` 时即可继续展开，否则保持首帧降级。新增 `dwunw_unwind_request.read_memory`/`memory_ctx` 以让调用方插件任意地址读取逻辑。
+   - **栈展开执行器**：扩展 `dwunw_capture()`，基于新的 `dwunw_cfi_eval()` 循环生成多帧；当库内 reader 可用时继续展开，否则保持首帧降级。`struct dwunw_unwind_request` 仅负责提供寄存器/帧数组，内存读取逻辑完全由库管理。
    - **掌控回退**：若模块缺少 CFI，`dwunw_cfi_build()` 返回 `DWUNW_ERR_NO_DEBUG_DATA` 并在 capture 层静默降级；FDE 执行失败时返回对应错误码供调用方转入 FP 链或直接忽略。
    - **测试与验证**：新增 `tests/unit/test_cfi`（合成 .debug_frame、验证 CFI 执行），并更新 `test_unwinder`、`test_capture_memleak` 以覆盖新的输入要求；`Makefile` 增加 `-Isrc` 让内部头文件可复用于测试。
    - **文档更新**：`doc/api_usage.md` 补充“多帧回溯/内存读取回调”说明，强调未提供回调时的单帧退化行为及错误码含义。
 
 9. **栈读取策略对齐 Ghostscope（已完成）**
 > 目标：响应最新 /spec，在库层提供默认启用的 `ptrace + process_vm_readv + /proc/<pid>/mem` helper，满足 eBPF 场景需求。
-    - **库内 reader 模块 (`src/utils/stack_reader.*`)**：实现 `dwunw_stack_reader_{init,attach,read,detach}`，在一次采样范围内完成 ptrace attach/wait/detach，并按“process_vm_readv → /proc/<pid>/mem” 顺序回退。helper 以 `dwunw_status_t` 返回 attach/读取错误，供上层判定是否继续。
-    - **`dwunw_capture()` 默认行为**：`struct dwunw_unwind_request` 新增 `pid/tid` 字段；当调用者未显式提供 `read_memory` 且请求多帧时，库自动启用默认 reader。attach 失败时保持首帧输出，但返回 attach 错误，调用方可将 `pid/tid` 清零后重试单帧。
+   - **库内 reader 模块 (`src/utils/stack_reader.*`)**：实现 `dwunw_stack_reader_{init,attach,read,detach}`，在一次采样范围内完成 ptrace attach/wait/detach，并按“process_vm_readv → /proc/<pid>/mem” 顺序回退。helper 以 `dwunw_status_t` 返回 attach/读取错误，供上层判定是否继续，且对外不再暴露自定义注册接口。
+   - **`dwunw_capture()` 默认行为**：`struct dwunw_unwind_request` 新增 `pid/tid` 字段；库必须强制启用默认 reader，不允许调用方覆盖。attach 失败时保持首帧输出，但返回 attach 错误，调用方可将 `pid/tid` 清零后重试单帧。
     - **上下文生命周期**：`dwunw_context` 维护 `struct dwunw_stack_reader`，在 `dwunw_init()` 中初始化，在 `dwunw_shutdown()` 中释放，确保跨事件复用配置而不持久化敏感句柄。
     - **示例/CLI**：`examples/bpf_memleak/memleak_user.c` 与 `examples/memleak_bcc_dwunw/memleak_dwunw_user.c` 直接填充 `pid/tid` 并信任默认 helper；`fallback/force` 模式通过清零 `pid/tid` 控制是否回退；README 说明默认 reader 所需权限与回退提示。
     - **文档/验证**：`doc/api_usage.md`、示例 README 更新默认 reader 的使用方式与权限要求；执行 `make test` 通过全部单元/集成测试（`tests/unit/*`, `tests/integration/test_capture_memleak`），确保新字段与上下文生命周期不破坏原有流程。

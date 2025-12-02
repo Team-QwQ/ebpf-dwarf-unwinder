@@ -78,7 +78,7 @@
 
 ## Stage 8：多帧栈展开要点
 
-1. `memleak_user.c` 仅需在 `dwunw_unwind_request` 中填充 `pid/tid`，即可触发库内默认 reader（`ptrace + process_vm_readv + /proc/<pid>/mem`）；若需要自定义快照或 RPC 方案，可继续覆盖 `read_memory`/`memory_ctx`。
+1. `memleak_user.c` 仅需在 `dwunw_unwind_request` 中填充 `pid/tid`，即可触发库内默认 reader（`ptrace + process_vm_readv + /proc/<pid>/mem`）；当前版本不支持自定义 reader，若需特殊来源应在库内部扩展 helper。
 2. 当默认 reader 因权限或目标状态失败时，示例会打印 `[warn] default reader failed ... retrying without reader]`，随后将 `pid/tid` 清零并重新调用 `dwunw_capture()`，保持与 Stage 5 行为兼容。
 3. 示例不再自行打开 `/proc/<pid>/mem`，因此不会额外缓存文件描述符；所有特权操作均由 `libdwunw` 内部管理，并在一次采样结束后自动 `ptrace_detach`。
 4. 需要验证多帧路径时，可借助 `tests/integration/test_capture_memleak` 或直接观察 `frames` 数组是否超过 1 条记录。

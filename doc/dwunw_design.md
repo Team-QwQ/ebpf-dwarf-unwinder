@@ -26,7 +26,7 @@
 | `include/dwunw/` | 对外头文件，定义 API、状态码、寄存器/帧结构、栈读取接口 |
 | `src/core/` | 上下文初始化、架构注册、全局配置 (`dwunw_init`, `dwunw_shutdown`, `dwunw_regset_prepare`) |
 | `src/dwarf/` | ELF 映像加载、调试段索引、CFI 执行与 FDE 查找 |
-| `src/arch/<arch>/` | 各架构 `dwunw_arch_ops` 实现（CFA 计算、返回地址读取、寄存器标准化） |
+| `src/arch/<arch>/` | 各架构 `dwunw_arch_ops` 实现（用于 root frame 的 CFA/RA 估算与寄存器标准化，后续帧依赖 DWARF CFI） |
 | `src/unwinder/` | `dwunw_capture` 主流程，驱动模块缓存、CFI、栈读取 |
 | `src/utils/` | 平台辅助模块，目前为 `stack_reader` 默认栈读取 helper |
 | `examples/` | eBPF memleak 示例：`bpf_memleak`（纯 libbpf）与 `memleak_bcc_dwunw`（bcc 扩展示例） |
@@ -105,15 +105,15 @@ stateDiagram-v2
 
 1. **新增架构**
    - 在 `include/dwunw/arch_ops.h` 注册 ID。
-   - 实现 `src/arch/<arch>/arch_ops.c` 的 `normalize/compute_cfa/read_return_addr/open_frame`。
+   - 实现 `src/arch/<arch>/arch_ops.c` 的 `normalize/compute_cfa/read_return_addr/open_frame`（当前仅用于生成 root frame，后续帧由 DWARF CFI 驱动）。
    - 在 `tests/unit/test_arch_ops.c` 增加对应用例。
 
 2. **增量特性**
    - **CFI 扩展**：在 `src/dwarf/cfi.c` 中添加新的 DWARF opcode 支持，并在 `tests/unit/test_cfi.c` 增加合成样例。
    - **缓存策略**：若需要超过 16 个模块，可调整 `DWUNW_MODULE_CACHE_CAPACITY` 并增加 LRU 算法测试。
 
-3. **默认 reader 定制**
-   - 如需自定义栈访问方式，可在 `dwunw_unwind_request` 中提供 `read_memory`/`memory_ctx` 覆盖默认 helper；或扩展 `dwunw_stack_reader` 以支持远程采样。
+3. **默认 reader 扩展**
+   - 当前版本不对外暴露自定义 reader；如需支持远程采样等特殊场景，应在 `src/utils/stack_reader.*` 内扩展新的 backend，并由库内部选择，而非让调用方覆盖。
 
 4. **多线程/多实例**
    - 目前上下文/缓存未加锁；若需要并发访问，请在外层序列化或引入新的线程安全包装层。
@@ -126,8 +126,7 @@ stateDiagram-v2
 
 2. **请求构造**
    - `memset(&req, 0, sizeof(req))`；设置 `module_path`, `regs`, `frames`, `max_frames`。
-   - 若希望自动多帧：设置 `req.pid = target_pid; req.tid = maybe_tid;` 并将 `max_frames > 1`。
-   - 若需自定义 reader：提供 `req.read_memory` 与 `req.memory_ctx`，库将跳过默认 helper。
+   - 若希望自动多帧：设置 `req.pid = target_pid; req.tid = maybe_tid;` 并将 `max_frames > 1`，其余字段由库管理。
 
 3. **错误处理**
    - `DWUNW_ERR_NO_DEBUG_DATA`：模块缺少 CFI，可回退至 FP unwinder。

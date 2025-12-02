@@ -38,6 +38,10 @@ arm64_compute_cfa(const struct dwunw_regset *regs, uint64_t *cfa)
     if (arm64_valid_reg(ARM64_REG_FP)) {
         uint64_t fp = regs->regs[ARM64_REG_FP];
         if (fp != 0) {
+            /*
+             * AArch64 ABI saves {fp, lr} as a pair at fp and fp+8, so the
+             * caller's stack pointer (our CFA) points just beyond that record.
+             */
             *cfa = fp + ARM64_FRAME_RECORD_SIZE; /* fp/lr pair lives on stack */
             return DWUNW_OK;
         }

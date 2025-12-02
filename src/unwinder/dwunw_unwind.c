@@ -64,9 +64,11 @@ dwunw_capture(struct dwunw_context *ctx,
               const struct dwunw_unwind_request *request,
               size_t *frames_written)
 {
-    struct dwunw_unwind_request effective = {0};
+    const struct dwunw_unwind_request *effective = request;
     struct dwunw_module_handle *handle = NULL;
     struct dwunw_stack_reader_session session;
+    dwunw_memory_read_fn reader_fn = NULL;
+    void *reader_ctx = NULL;
     bool using_stack_reader = false;
     dwunw_status_t reader_status = DWUNW_OK;
     dwunw_status_t status = DWUNW_OK;
@@ -85,17 +87,15 @@ dwunw_capture(struct dwunw_context *ctx,
         return DWUNW_ERR_INVALID_ARG;
     }
 
-    effective = *request;
-
-    if (!effective.read_memory && ctx->stack_reader_ready &&
-        effective.pid > 0 && effective.max_frames > 1) {
+    if (ctx->stack_reader_ready &&
+        effective->pid > 0 && effective->max_frames > 1) {
         dwunw_status_t attach_status = dwunw_stack_reader_attach(&ctx->stack_reader,
-                                                                 effective.pid,
-                                                                 effective.tid,
+                                                                 effective->pid,
+                                                                 effective->tid,
                                                                  &session);
         if (attach_status == DWUNW_OK) {
-            effective.read_memory = default_stack_reader_mem;
-            effective.memory_ctx = &session;
+            reader_fn = default_stack_reader_mem;
+            reader_ctx = &session;
             using_stack_reader = true;
         } else {
             reader_status = attach_status;
@@ -103,7 +103,7 @@ dwunw_capture(struct dwunw_context *ctx,
     }
 
     status = dwunw_module_cache_acquire(&ctx->module_cache,
-                                        effective.module_path,
+                                        effective->module_path,
                                         &handle);
     if (status != DWUNW_OK) {
         if (using_stack_reader) {
@@ -112,20 +112,20 @@ dwunw_capture(struct dwunw_context *ctx,
         return status;
     }
 
-    status = prepare_root_frame(effective.regs, &effective.frames[0]);
+    status = prepare_root_frame(effective->regs, &effective->frames[0]);
     if (status == DWUNW_OK) {
-        strncpy(effective.frames[0].module_path,
-                effective.module_path,
-                sizeof(effective.frames[0].module_path) - 1);
-        effective.frames[0].module_path[sizeof(effective.frames[0].module_path) - 1] = '\0';
+        strncpy(effective->frames[0].module_path,
+                effective->module_path,
+                sizeof(effective->frames[0].module_path) - 1);
+        effective->frames[0].module_path[sizeof(effective->frames[0].module_path) - 1] = '\0';
         produced = 1;
 
-        if (effective.max_frames > 1 && handle->index.fde_count > 0 &&
-            effective.read_memory) {
-            struct dwunw_regset cursor_regs = *effective.regs;
+        if (effective->max_frames > 1 && handle->index.fde_count > 0 &&
+            reader_fn) {
+            struct dwunw_regset cursor_regs = *effective->regs;
             const struct dwunw_arch_ops *ops = dwunw_arch_from_regset(&cursor_regs);
 
-            while (produced < effective.max_frames) {
+            while (produced < effective->max_frames) {
                 const struct dwunw_fde_record *fde;
                 struct dwunw_frame *cursor_frame;
                 dwunw_status_t unwind_status;
@@ -137,12 +137,12 @@ dwunw_capture(struct dwunw_context *ctx,
                     break;
                 }
 
-                cursor_frame = &effective.frames[produced];
+                cursor_frame = &effective->frames[produced];
                 unwind_status = dwunw_cfi_eval(fde,
                                                cursor_regs.pc,
                                                &cursor_regs,
-                                               effective.read_memory,
-                                               effective.memory_ctx,
+                                               reader_fn,
+                                               reader_ctx,
                                                cursor_frame);
                 if (unwind_status != DWUNW_OK) {
                     status = unwind_status;
@@ -151,7 +151,7 @@ dwunw_capture(struct dwunw_context *ctx,
 
                 cursor_frame->flags &= ~DWUNW_FRAME_FLAG_PARTIAL;
                 strncpy(cursor_frame->module_path,
-                        effective.module_path,
+                        effective->module_path,
                         sizeof(cursor_frame->module_path) - 1);
                 cursor_frame->module_path[sizeof(cursor_frame->module_path) - 1] = '\0';
                 produced++;
