@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#define _GNU_SOURCE
 #include <errno.h>
 #include <getopt.h>
 #include <signal.h>
@@ -8,7 +9,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 #include <bpf/libbpf.h>
+#pragma GCC diagnostic pop
 
 #include "dwunw/dwunw_api.h"
 #include "dwunw/unwind.h"

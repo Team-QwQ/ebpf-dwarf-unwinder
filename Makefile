@@ -29,6 +29,7 @@ CFLAGS += -fPIC -ffunction-sections -fdata-sections
 CFLAGS += -I$(INCLUDE_ROOT)
 CFLAGS += -Iexamples/bpf_memleak
 CFLAGS += $(DWUNW_ARCH_CFLAGS)
+EXAMPLE_CFLAGS := $(filter-out -pedantic,$(CFLAGS))
 LDFLAGS ?=
 HOST_CC ?= cc
 LIBBPF_CFLAGS ?=
@@ -78,7 +79,7 @@ $(TEST_FIXTURE): tests/fixtures/dwarf_fixture.c
 
 $(EXAMPLE_MEMLEAK_TARGET): $(EXAMPLE_MEMLEAK_SRC) $(LIB_TARGET) examples/bpf_memleak/memleak_events.h
 	@mkdir -p $(dir $@)
-	$(HOST_CC) $(CFLAGS) $(LIBBPF_CFLAGS) -Iexamples/bpf_memleak \
+	$(HOST_CC) $(EXAMPLE_CFLAGS) $(LIBBPF_CFLAGS) -Iexamples/bpf_memleak \
 		$< $(LIB_TARGET) $(LIBBPF_LDLIBS) -o $@
 
 clean:
