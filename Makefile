@@ -10,6 +10,15 @@ LIB_TARGET := $(BUILD_ROOT)/libdwunw.a
 TEST_FIXTURE := $(BUILD_ROOT)/fixtures/dwarf_fixture
 EXAMPLE_MEMLEAK_SRC := examples/bpf_memleak/memleak_user.c
 EXAMPLE_MEMLEAK_TARGET := $(BUILD_ROOT)/examples/bpf_memleak/memleak_user
+MEMLEAK_BCC_DIR := examples/memleak_bcc_dwunw
+MEMLEAK_BCC_USER_SRC := $(MEMLEAK_BCC_DIR)/memleak_dwunw_user.c
+MEMLEAK_BCC_TRACE_HELPERS := $(MEMLEAK_BCC_DIR)/trace_helpers.c
+MEMLEAK_BCC_UPROBE_HELPERS := $(MEMLEAK_BCC_DIR)/uprobe_helpers.c
+MEMLEAK_BCC_TARGET := $(BUILD_ROOT)/examples/memleak_bcc_dwunw/memleak_dwunw_user
+MEMLEAK_BCC_BPF_SRC := $(MEMLEAK_BCC_DIR)/memleak_dwunw.bpf.c
+MEMLEAK_BCC_BPF_OBJ := $(BUILD_ROOT)/examples/memleak_bcc_dwunw/memleak_dwunw.bpf.o
+MEMLEAK_BCC_SKEL := $(BUILD_ROOT)/examples/memleak_bcc_dwunw/memleak_dwunw.skel.h
+EXAMPLE_BINS := $(EXAMPLE_MEMLEAK_TARGET) $(MEMLEAK_BCC_TARGET)
 
 CORE_SRCS := $(wildcard $(SRC_ROOT)/core/*.c)
 DWARF_SRCS := $(wildcard $(SRC_ROOT)/dwarf/*.c)
@@ -34,6 +43,10 @@ LDFLAGS ?=
 HOST_CC ?= cc
 LIBBPF_CFLAGS ?=
 LIBBPF_LDLIBS ?= -lbpf -lelf -lz
+BPF_CLANG ?= clang
+BPF_CFLAGS ?= -target bpf -D__TARGET_ARCH_x86 -O2 -g -Wall -Werror
+BPF_CFLAGS += -I$(MEMLEAK_BCC_DIR) $(LIBBPF_CFLAGS)
+BPFTOOL ?= bpftool
 
 .PHONY: all clean print-config help test unit examples
 
@@ -51,7 +64,7 @@ test: all $(TEST_FIXTURE) $(TEST_BINS) $(INTEGRATION_BINS)
 
 unit: test
 
-examples: $(EXAMPLE_MEMLEAK_TARGET)
+examples: $(EXAMPLE_BINS)
 
 $(LIB_TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
@@ -81,6 +94,21 @@ $(EXAMPLE_MEMLEAK_TARGET): $(EXAMPLE_MEMLEAK_SRC) $(LIB_TARGET) examples/bpf_mem
 	@mkdir -p $(dir $@)
 	$(HOST_CC) $(EXAMPLE_CFLAGS) $(LIBBPF_CFLAGS) -Iexamples/bpf_memleak \
 		$< $(LIB_TARGET) $(LIBBPF_LDLIBS) -o $@
+
+$(MEMLEAK_BCC_TARGET): $(MEMLEAK_BCC_USER_SRC) $(MEMLEAK_BCC_TRACE_HELPERS) $(MEMLEAK_BCC_UPROBE_HELPERS) $(LIB_TARGET) $(MEMLEAK_BCC_SKEL)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(EXAMPLE_CFLAGS) $(LIBBPF_CFLAGS) -I$(MEMLEAK_BCC_DIR) \
+		-I$(BUILD_ROOT)/examples/memleak_bcc_dwunw \
+		$< $(MEMLEAK_BCC_TRACE_HELPERS) $(MEMLEAK_BCC_UPROBE_HELPERS) $(LIB_TARGET) $(LIBBPF_LDLIBS) -lpthread -lelf -lz \
+		-o $@
+
+$(MEMLEAK_BCC_BPF_OBJ): $(MEMLEAK_BCC_BPF_SRC) $(MEMLEAK_BCC_DIR)/vmlinux.h $(MEMLEAK_BCC_DIR)/memleak.h $(MEMLEAK_BCC_DIR)/maps.bpf.h $(MEMLEAK_BCC_DIR)/core_fixes.bpf.h $(MEMLEAK_BCC_DIR)/memleak_dwunw_events.h
+	@mkdir -p $(dir $@)
+	$(BPF_CLANG) $(BPF_CFLAGS) -c $< -o $@
+
+$(MEMLEAK_BCC_SKEL): $(MEMLEAK_BCC_BPF_OBJ)
+	@mkdir -p $(dir $@)
+	$(BPFTOOL) gen skeleton $< > $@
 
 clean:
 	rm -rf build
