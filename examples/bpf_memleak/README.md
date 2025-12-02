@@ -78,9 +78,9 @@
 
 ## Stage 8：多帧栈展开要点
 
-1. `memleak_user.c` 在接收到事件时会尝试打开 `/proc/<pid>/mem` 并注册 `read_memory` 回调，使 `dwunw_capture()` 能够沿 DWARF CFI 继续向上解析父帧。
-2. 如果进程不允许读取其 `mem` 文件（常见于容器或未授予 `CAP_SYS_PTRACE` 的环境），示例会打印 `[warn] open /proc/<pid>/mem failed` 并自动回退到单帧模式，保持与 Stage 5 行为兼容。
-3. 出于安全考虑，示例不会缓存文件描述符；每次事件结束都会主动关闭 `mem`，避免长时间持有高权限句柄。
+1. `memleak_user.c` 仅需在 `dwunw_unwind_request` 中填充 `pid/tid`，即可触发库内默认 reader（`ptrace + process_vm_readv + /proc/<pid>/mem`）；若需要自定义快照或 RPC 方案，可继续覆盖 `read_memory`/`memory_ctx`。
+2. 当默认 reader 因权限或目标状态失败时，示例会打印 `[warn] default reader failed ... retrying without reader]`，随后将 `pid/tid` 清零并重新调用 `dwunw_capture()`，保持与 Stage 5 行为兼容。
+3. 示例不再自行打开 `/proc/<pid>/mem`，因此不会额外缓存文件描述符；所有特权操作均由 `libdwunw` 内部管理，并在一次采样结束后自动 `ptrace_detach`。
 4. 需要验证多帧路径时，可借助 `tests/integration/test_capture_memleak` 或直接观察 `frames` 数组是否超过 1 条记录。
 
 ## 关键代码路径

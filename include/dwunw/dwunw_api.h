@@ -5,8 +5,9 @@
 #include <stdint.h>
 
 #include "dwunw/config.h"
-#include "dwunw/status.h"
 #include "dwunw/module_cache.h"
+#include "dwunw/stack_reader.h"
+#include "dwunw/status.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,6 +18,8 @@ struct dwunw_context {
     uint32_t reserved;
     struct dwunw_module_cache module_cache;
     uint8_t module_cache_ready;
+    struct dwunw_stack_reader stack_reader;
+    uint8_t stack_reader_ready;
 };
 
 static inline uint32_t

@@ -34,14 +34,14 @@ sequenceDiagram
     User->>Cache: dwunw_module_cache_release()
 ```
 
-- `struct dwunw_unwind_request` 在构造时应显式清零；当希望展开多帧时，必须提供 `read_memory`/`memory_ctx`，用于按地址读取父帧栈槽。回调的语义与 `pread()` 类似：若地址超界应返回 `DWUNW_ERR_INVALID_ARG`。
+- `struct dwunw_unwind_request` 在构造时应显式清零；当希望展开多帧时，优先设置 `pid`/`tid`，让库内默认 helper（`ptrace + process_vm_readv + /proc/<pid>/mem`）自动启用。只有在自定义 reader 的场景下才需要手动填写 `read_memory`/`memory_ctx`，其语义与 `pread()` 一致：若地址超界应返回 `DWUNW_ERR_INVALID_ARG`。
 - `dwunw_capture()` 默认只会产生首帧，并以 `DWUNW_FRAME_FLAG_PARTIAL` 标记；当 DWARF CFI 与 `read_memory` 同时可用时，会自动继续展开，直到命中 FDE 终止或 `max_frames` 上限。
 - 任何阶段失败都会返回 `dwunw_status_t` 错误码；调用方应根据 `DWUNW_ERR_NO_DEBUG_DATA`、`DWUNW_ERR_IO` 等类型决定回退策略。
 
 ## 多帧展开与回退
 
-1. 当调用者需要完整 DWARF 栈时，必须实现 `dwunw_memory_read_fn`，在用户态通过 `/proc/<pid>/mem` 或自有采样器的地址空间快照，完成与 `pread()` 语义一致的读操作；推荐在 `struct dwunw_unwind_request` 中仅在 reader 可用时设置 `read_memory`/`memory_ctx` 指针，其他情况保持 `NULL` 以表明单帧模式。
-2. 若 reader 打开或读取失败（例如缺少 `CAP_SYS_PTRACE`、进程默认不允许访问 `/proc/<pid>/mem`），上层应捕获非 `DWUNW_OK` 的返回值并回退到单帧打印；当 CLI 处于“强制模式”时，可直接将错误表面化，避免静默丢帧。
+1. 当调用者需要完整 DWARF 栈时，只需在 `dwunw_unwind_request` 中写入 `pid`（必填）和 `tid`（可选，默认为 `pid`）。`dwunw_capture()` 会在内部执行 `ptrace_attach → process_vm_readv → /proc/<pid>/mem` 的链式尝试。仍可通过 `read_memory`/`memory_ctx` 指针覆盖默认逻辑，以集成快照式 reader 或 RPC 方案。
+2. 若默认 helper 在 attach/读取阶段失败（例如缺少 `CAP_SYS_PTRACE`、目标已退出），`dwunw_capture()` 会返回 `DWUNW_ERR_IO` 等错误码。调用方可在“回退模式”下将 `pid/tid` 重置为 0 并重试，以获得单帧输出；当 CLI 处于“强制模式”时，可直接将错误表面化，避免静默丢帧。
 3. `dwunw_capture()` 在检测到 `read_memory` 缺失、回调返回错误或 FDE 缺口时，会将最后一帧标记为 `DWUNW_FRAME_FLAG_PARTIAL`；调用者可据此提示“回退至帧 #0”，以便后续排查。
 4. 建议在日志中输出 reader 来源（`/proc/<pid>/mem`、core dump 等）与错误码，避免与 DWARF 解析失败混淆；测试过程中可通过向 reader 注入 `DWUNW_ERR_INVALID_ARG` 来模拟边界地址。
 

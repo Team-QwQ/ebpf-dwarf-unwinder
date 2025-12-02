@@ -57,6 +57,25 @@
 - mips32：优先 MIPS32r2+ 小端 ABI。
 - 架构特定逻辑需封装在 `src/arch/<arch>/`，通过统一的 `struct dwunw_arch_ops` 调用。
 
+### 栈内存访问策略（参考 Ghostscope）
+1. 用户态在拿到 eBPF 事件中的寄存器快照后，必须先对目标线程执行 `ptrace(PTRACE_ATTACH)` / `PTRACE_INTERRUPT` 以冻结执行，确保寄存器与栈内容一致，再在处理完堆栈后 `PTRACE_DETACH` 恢复。
+2. 栈槽读取首选 `process_vm_readv()`：
+  - 单次调用可批量复制多个连续/不连续区域，减少 `/proc/<pid>/mem` 所需的反复 `lseek+read`；
+  - 需要 `CAP_SYS_PTRACE` 或已 attach 的 ptrace 权限，按 Ghostscope 的守护流程实现；
+  - 错误码（如 `ENOSYS`、`EPERM`、`EFAULT`）需回传给 `dwunw_capture`，调用方再决定是否降级。
+3. 当 `process_vm_readv` 不可用（内核未启用、权限不足、seccomp 拦截等）时，回退到 `/proc/<pid>/mem` 读取：
+  - 仅在 reader 打开成功后才设置 `dwunw_unwind_request.read_memory`；
+  - 读取失败或偏移越界返回 `DWUNW_ERR_IO`/`DWUNW_ERR_INVALID_ARG`，库层会继续输出部分帧。
+4. 栈读取接口面向 eBPF 场景提供默认实现：库提供 `process_vm_readv` + `/proc/<pid>/mem` 双路径 reader，并作为唯一推荐实现；当前阶段不再要求调用者自行注册 reader。
+5. 安全性要求：
+  - 禁止长期持有 `/proc/<pid>/mem` FD，逐事件打开/关闭；
+  - 记录 attach/detach 行为的审计日志，帮助排查意外阻塞；
+  - 对不可暂停的进程（如设置了 `PR_SET_DUMPABLE=0`）必须在 CLI 层显式告警，防止静默丢帧。
+6. 为了降低调用方的重复实现成本，库层需在 `src/utils/stack_reader.*` 形式提供一个“默认启用”的 helper：
+  - API 暴露 `dwunw_stack_reader_{init,attach,read,detach}`，内部实现 `ptrace + process_vm_readv + /proc/<pid>/mem` 组合流程；
+  - 默认情况下，`dwunw_capture` 应自动使用该 helper（只要调用方未主动指定 `dwunw_unwind_request.read_memory`），即“库内 reader 先尝试，调用方自带 reader 需要显式覆盖”；
+  - 若未来扩展到非 eBPF 场景再评估开放自定义 reader，但当前交付内仅支持库内默认实现。
+
 ## 性能与健壮性要求
 - 热路径（栈回溯循环）禁止重复 malloc/free；需复用调用方提供的帧缓存。
 - 单次回溯必须在 <5µs（x86_64 服务器级 CPU）内完成，才能满足高频采样和 memleak 扫描需求。

@@ -24,7 +24,8 @@ CORE_SRCS := $(wildcard $(SRC_ROOT)/core/*.c)
 DWARF_SRCS := $(wildcard $(SRC_ROOT)/dwarf/*.c)
 ARCH_SRCS := $(wildcard $(SRC_ROOT)/arch/*/*.c)
 UNWINDER_SRCS := $(wildcard $(SRC_ROOT)/unwinder/*.c)
-SRCS := $(CORE_SRCS) $(DWARF_SRCS) $(ARCH_SRCS) $(UNWINDER_SRCS)
+UTIL_SRCS := $(wildcard $(SRC_ROOT)/utils/*.c)
+SRCS := $(CORE_SRCS) $(DWARF_SRCS) $(ARCH_SRCS) $(UNWINDER_SRCS) $(UTIL_SRCS)
 
 OBJS := $(patsubst $(SRC_ROOT)/%.c,$(OBJ_ROOT)/%.o,$(SRCS))
 

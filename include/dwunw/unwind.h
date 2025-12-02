@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include "dwunw/config.h"
 #include "dwunw/arch_ops.h"
@@ -28,6 +29,8 @@ struct dwunw_unwind_request {
     struct dwunw_frame *frames;
     size_t max_frames;
     uint32_t options;
+    pid_t pid;
+    pid_t tid;
     dwunw_memory_read_fn read_memory;
     void *memory_ctx;
 };
